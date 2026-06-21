@@ -38,6 +38,13 @@ def _load_dotenv() -> None:
 _load_dotenv()
 
 
+def _env_bool(name: str, *, default: bool = False) -> bool:
+    raw = os.environ.get(name, "")
+    if not raw.strip():
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
 @dataclass(frozen=True)
 class Settings:
     gizmo_base_url: str = os.environ.get("GIZMO_BASE_URL", "https://api.gizmo.antimlabs.com")
@@ -64,10 +71,13 @@ class Settings:
     train_further_rounds: int = int(os.environ.get("HUDATHON_TRAIN_ROUNDS", "3"))
     train_further_group: int = int(os.environ.get("HUDATHON_TRAIN_GROUP", "3"))
 
+    # Modal fine-tune: synthetic rewards + no GPU when enabled (UI + API default).
+    train_modal_dry_run: bool = _env_bool("HUDATHON_TRAIN_MODAL_DRY_RUN")
+
     # Demo mode: skip the Gizmo network calls (generate + export) and use a local
     # already-downloaded scene as the "export", so everything after the POST (compose,
     # map, rollout) is exercised offline. The progress bar still animates via mock events.
-    demo_mode: bool = os.environ.get("HUDATHON_DEMO_MODE", "").strip().lower() in ("1", "true", "yes", "on")
+    demo_mode: bool = _env_bool("HUDATHON_DEMO_MODE")
     demo_scene: str = os.environ.get("HUDATHON_DEMO_SCENE", "env2")
 
 

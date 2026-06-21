@@ -6,8 +6,8 @@ import asyncio
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
 
 from backend.config import settings
 from backend.orchestrator import run_describe, run_generate_onward, run_train_further
@@ -19,7 +19,9 @@ from backend.schemas import (
     SceneConfirmAccepted,
     TrainFurtherAccepted,
     TrainModalAccepted,
+    VideoAccepted,
 )
+from backend.rollout_video import VIDEOS_ROOT, generate_rollout_video
 from backend.train_modal import run_modal_training
 
 router = APIRouter(prefix="/api")
@@ -114,15 +116,38 @@ async def train_further_route(run_id: str, activity_index: int) -> TrainFurtherA
 
 @router.post("/runs/{run_id}/train-modal", response_model=TrainModalAccepted)
 async def train_modal_route(
-    run_id: str, activity_index: int, dry_run: bool = True, rounds: int = 1,
+    run_id: str,
+    activity_index: int,
+    dry_run: bool | None = Query(default=None),
+    rounds: int = 1,
 ) -> TrainModalAccepted:
-    """Run the real pi0.5 BC loop (eval -> curate -> finetune) with live SSE.
+    """Run the pi0.5 BC loop (eval -> curate -> finetune) on Modal with live SSE.
 
-    dry_run=True (default) streams the same events from recorded/synthetic reward so
-    the chart can be demoed with no GPU spend; dry_run=false drives Modal A100s.
+    Default dry_run comes from HUDATHON_TRAIN_MODAL_DRY_RUN (false when unset).
+    Pass dry_run=true|false to override per request.
     """
     run = store.get(run_id)
     if run is None:
         raise HTTPException(404, "run not found")
-    asyncio.create_task(run_modal_training(run, activity_index, dry_run=dry_run, rounds=rounds))
+    effective_dry_run = settings.train_modal_dry_run if dry_run is None else dry_run
+    asyncio.create_task(
+        run_modal_training(run, activity_index, dry_run=effective_dry_run, rounds=rounds)
+    )
     return TrainModalAccepted()
+
+
+@router.post("/runs/{run_id}/rollout-video", response_model=VideoAccepted)
+async def rollout_video_route(run_id: str, activity_index: int) -> VideoAccepted:
+    run = store.get(run_id)
+    if run is None:
+        raise HTTPException(404, "run not found")
+    asyncio.create_task(generate_rollout_video(run, activity_index, force=True))
+    return VideoAccepted()
+
+
+@router.get("/runs/{run_id}/videos/{activity_index}")
+async def get_rollout_video(run_id: str, activity_index: int) -> FileResponse:
+    mp4 = VIDEOS_ROOT / run_id / str(activity_index) / "rollout.mp4"
+    if not mp4.is_file():
+        raise HTTPException(404, "video not ready")
+    return FileResponse(mp4, media_type="video/mp4", filename="rollout.mp4")

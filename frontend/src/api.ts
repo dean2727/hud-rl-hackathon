@@ -7,8 +7,9 @@ export interface TimelineEvent {
   // The SSE `event:` name. One of:
   //   stage | awaiting_confirmation | gizmo | rollout | train_round |
   //   train_further_done | train_further_error | error | done |
-  //   train_stage | eval_rollout | eval_summary | curate |
-  //   train_modal_done | train_modal_error
+//   train_stage | eval_rollout | eval_summary | curate |
+//   train_modal_done | train_modal_error |
+//   video_generating | video_ready | video_error
   event: string
   data: Record<string, unknown>
   ts: number
@@ -64,20 +65,31 @@ export async function trainFurther(
   }
 }
 
-// Kick off the real pi0.5 BC loop (eval -> curate -> finetune) with live reward
-// streaming. dryRun=true (default) streams recorded/synthetic reward so the chart
-// animates with no GPU spend; dryRun=false drives Modal A100s.
+// Kick off the pi0.5 BC loop (eval -> curate -> finetune) on Modal A100s with live
+// reward streaming, then build a rollout video from the fine-tuned checkpoint.
 export async function trainModal(
   runId: string,
   activityIndex: number,
-  dryRun = true,
+  dryRun?: boolean,
+): Promise<void> {
+  const params = new URLSearchParams({ activity_index: String(activityIndex) })
+  if (dryRun !== undefined) params.set('dry_run', String(dryRun))
+  const resp = await fetch(`/api/runs/${runId}/train-modal?${params}`, { method: 'POST' })
+  if (!resp.ok) {
+    throw new Error(`trainModal failed (${resp.status}): ${await resp.text()}`)
+  }
+}
+
+export async function rolloutVideo(
+  runId: string,
+  activityIndex: number,
 ): Promise<void> {
   const resp = await fetch(
-    `/api/runs/${runId}/train-modal?activity_index=${activityIndex}&dry_run=${dryRun}`,
+    `/api/runs/${runId}/rollout-video?activity_index=${activityIndex}`,
     { method: 'POST' },
   )
   if (!resp.ok) {
-    throw new Error(`trainModal failed (${resp.status}): ${await resp.text()}`)
+    throw new Error(`rolloutVideo failed (${resp.status}): ${await resp.text()}`)
   }
 }
 
@@ -102,6 +114,9 @@ export function openEventStream(
     'curate',
     'train_modal_done',
     'train_modal_error',
+    'video_generating',
+    'video_ready',
+    'video_error',
     'error',
     'done',
   ]

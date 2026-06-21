@@ -11,12 +11,12 @@ venv/
 datasets/
 results/
 telemetry-dump/
-*.mp4
 *.gif
 .DS_Store
 
 scenes/*
 backend/data/uploads/*
+backend/data/videos/*
 frontend/node_modules/
 frontend/dist/
 

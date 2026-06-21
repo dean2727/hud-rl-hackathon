@@ -57,6 +57,7 @@ async def vla_pick(
     seed: int = 0,
     max_steps: int = 200,
     reward_spec: dict | str | None = None,
+    video_dir: str | None = None,
 ):
     """The franka-libero-v1 / pick-the-red-block task.
 
@@ -67,6 +68,7 @@ async def vla_pick(
     prompt = await endpoint.reset(
         scene_id=scene_id, target_object=target_object, instruction=instruction,
         lift_height=lift_height, seed=seed, max_steps=max_steps, reward_spec=reward_spec,
+        video_dir=video_dir,
     )
     yield {"prompt": prompt}
 

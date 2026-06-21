@@ -591,6 +591,72 @@ html, body {
 
 .rc-actions { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
 
+/* ── Rollout video + generating border ── */
+.result-card.video-loading {
+  position: relative;
+  border-color: transparent;
+  overflow: hidden;
+}
+
+.result-card.video-loading::before {
+  content: '';
+  position: absolute;
+  inset: -50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    rgba(124, 92, 255, 0.15) 40deg,
+    rgba(124, 92, 255, 0.95) 120deg,
+    rgba(34, 211, 238, 0.95) 200deg,
+    rgba(124, 92, 255, 0.15) 280deg,
+    transparent 360deg
+  );
+  animation: border-spin 1.4s linear infinite;
+  z-index: 0;
+}
+
+.result-card.video-loading::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border-radius: 12px;
+  background: var(--panel-2);
+  z-index: 0;
+}
+
+.result-card.video-loading > * {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes border-spin {
+  to { transform: rotate(360deg); }
+}
+
+.rollout-video-wrap {
+  margin-top: 12px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: rgba(12, 16, 28, 0.55);
+}
+
+.video-meta {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 8px 12px 0;
+}
+
+.rollout-video {
+  display: block;
+  width: 100%;
+  max-height: 280px;
+  object-fit: contain;
+  background: #0a0e18;
+}
+
+.video-error { color: #fecdd3; }
+
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.55; }

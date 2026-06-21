@@ -27,6 +27,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from backend.rollout_video import generate_rollout_video
 from backend.runs import RunState, emit
 from train.config import TrainConfig
 
@@ -77,9 +78,6 @@ def _build_cfg(run: RunState, activity) -> TrainConfig:
     )
 
 
-# ── public entry ───────────────────────────────────────────────────────────────
-
-
 async def run_modal_training(
     run: RunState,
     activity_index: int,
@@ -109,6 +107,7 @@ async def run_modal_training(
             if dry_run else
             await _modal_loop(run, activity_index, cfg, rounds=rounds)
         )
+        await generate_rollout_video(run, activity_index, force=True)
         await emit(run, "train_modal_done", {"activity_index": activity_index, "summary": summary})
     except Exception as exc:  # never hang the SSE stream on a training failure
         await emit(run, "train_modal_error", {"activity_index": activity_index, "message": str(exc)})

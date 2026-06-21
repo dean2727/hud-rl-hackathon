@@ -31,6 +31,8 @@ class ActivityState:
     success: bool | None = None
     content: str | None = None
     best_checkpoint: str | None = None  # updated after each fine-tune round
+    eval_record_dir: str | None = None  # VLA eval episodes from fine-tune (agentview PNGs)
+    video_path: str | None = None
 
 
 @dataclass

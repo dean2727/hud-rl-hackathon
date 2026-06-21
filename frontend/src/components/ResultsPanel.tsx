@@ -12,12 +12,6 @@ export interface ActivityResult {
   can_train_further: boolean
 }
 
-export interface TrainRound {
-  round: number
-  best_reward: number
-  mean_reward: number
-}
-
 export interface ModalRollout {
   round: number
   index: number
@@ -40,14 +34,22 @@ export interface ModalTraining {
   message?: string
 }
 
+export interface ActivityVideo {
+  status: 'generating' | 'ready' | 'error'
+  url?: string
+  message?: string
+  duration_s?: number
+  frames?: number
+}
+
 interface Props {
   results: ActivityResult[]
-  trainRounds: Record<number, TrainRound[]>
   modalTraining: Record<number, ModalTraining>
-  trainingIndices: Set<number>
   modalIndices: Set<number>
-  onTrainFurther: (activityIndex: number) => void
+  videoIndices: Set<number>
+  activityVideos: Record<number, ActivityVideo>
   onTrainModal: (activityIndex: number) => void
+  onShowVideo: (activityIndex: number) => void
 }
 
 const STAGE_ORDER = ['serve', 'eval', 'curate', 'finetune']
@@ -64,14 +66,12 @@ function statusBadge(r: ActivityResult, mt?: ModalTraining) {
 }
 
 function ModalTrainingView({ mt }: { mt: ModalTraining }) {
-  // Scatter: every collected rollout, green when it succeeded.
   const dots: ChartDot[] = mt.rollouts.map((r, i) => ({
     x: i,
     y: r.reward,
     color: r.success ? '#34d399' : '#60a5fa',
   }))
 
-  // Mean line: one point per round, placed at the centre of that round's rollouts.
   const roundXs: Record<number, number[]> = {}
   mt.rollouts.forEach((r, i) => (roundXs[r.round] ??= []).push(i))
   const meanPoints = mt.rounds
@@ -93,7 +93,7 @@ function ModalTrainingView({ mt }: { mt: ModalTraining }) {
   return (
     <div className="modal-train">
       <div className="mt-head">
-        <strong>VLA fine-tune (collect → curate → train)</strong>
+        <strong>Modal fine-tune (eval → curate → train)</strong>
         {mt.status === 'running' && lastStage && (
           <span className="mt-stage">
             {STAGE_ORDER.map((s) => (
@@ -145,12 +145,12 @@ function ModalTrainingView({ mt }: { mt: ModalTraining }) {
 
 export function ResultsPanel({
   results,
-  trainRounds,
   modalTraining,
-  trainingIndices,
   modalIndices,
-  onTrainFurther,
+  videoIndices,
+  activityVideos,
   onTrainModal,
+  onShowVideo,
 }: Props) {
   if (results.length === 0) return null
 
@@ -159,18 +159,23 @@ export function ResultsPanel({
       <h2>Results</h2>
       <div className="results-cards">
       {results.map((r) => {
-        const rounds = trainRounds[r.activity_index] ?? []
         const mt = modalTraining[r.activity_index]
-        const isTraining = trainingIndices.has(r.activity_index)
+        const video = activityVideos[r.activity_index]
         const isModalTraining =
           modalIndices.has(r.activity_index) || mt?.status === 'running'
-        // After fine-tune, use the latest success rate; otherwise use initial reward.
+        const isVideoGenerating =
+          videoIndices.has(r.activity_index) || video?.status === 'generating'
         const lastRoundSummary = mt?.rounds.at(-1)
         const barPct = lastRoundSummary != null
           ? lastRoundSummary.success_rate * 100
           : r.reward != null ? Math.max(0, Math.min(1, r.reward)) * 100 : 0
+        const cardClass = [
+          'result-card',
+          isVideoGenerating ? 'video-loading' : '',
+        ].filter(Boolean).join(' ')
+
         return (
-          <div className="result-card" key={r.activity_index}>
+          <div className={cardClass} key={r.activity_index}>
             <div className="rc-head">
               <span className="rc-activity">{r.activity}</span>
               {statusBadge(r, mt)}
@@ -187,36 +192,48 @@ export function ResultsPanel({
             )}
             {r.content && <div className="rc-content">{r.content}</div>}
 
-            {rounds.length > 0 && (
-              <div className="train-rounds">
-                <strong>Train-further (best-of-N search):</strong>
-                {rounds.map((tr) => (
-                  <div className="tr-row" key={tr.round}>
-                    <span>Round {tr.round + 1}</span>
-                    <span>
-                      best {tr.best_reward.toFixed(3)} · mean{' '}
-                      {tr.mean_reward.toFixed(3)}
-                    </span>
+            {mt && <ModalTrainingView mt={mt} />}
+
+            {video?.status === 'ready' && video.url && (
+              <div className="rollout-video-wrap">
+                {video.duration_s != null && (
+                  <div className="video-meta">
+                    Rollout replay · {video.duration_s.toFixed(1)}s
+                    {video.frames != null ? ` · ${video.frames} frames` : ''}
                   </div>
-                ))}
+                )}
+                <video
+                  className="rollout-video"
+                  src={video.url}
+                  controls
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                />
               </div>
             )}
-
-            {mt && <ModalTrainingView mt={mt} />}
+            {video?.status === 'error' && video.message && (
+              <div className="rc-content video-error">{video.message}</div>
+            )}
 
             {r.can_train_further && (
               <div className="rc-actions">
                 <button
-                  disabled={isTraining}
-                  onClick={() => onTrainFurther(r.activity_index)}
+                  disabled={isVideoGenerating}
+                  onClick={() => onShowVideo(r.activity_index)}
                 >
-                  {isTraining ? 'Training…' : 'Train further'}
+                  {isVideoGenerating
+                    ? 'Generating video…'
+                    : 'Show Video of Final Robot'}
                 </button>
                 <button
-                  disabled={isModalTraining}
+                  disabled={isModalTraining || isVideoGenerating}
                   onClick={() => onTrainModal(r.activity_index)}
                 >
-                  {isModalTraining ? 'Fine-tuning…' : 'Fine-tune (VLA)'}
+                  {isModalTraining
+                    ? 'Training on Modal…'
+                    : 'Fine-tune on Modal'}
                 </button>
               </div>
             )}

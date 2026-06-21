@@ -64,6 +64,16 @@ class HudathonFrankaBridge(RobotBridge):
         self.decimation = decimation
         self.image_size = image_size
         self._record_dir = record_dir or os.environ.get("HUDATHON_RECORD_DIR")
+        # Optional rollout MP4 frame capture (HUDATHON_VIDEO_DIR).
+        self._video_dir = os.environ.get("HUDATHON_VIDEO_DIR")
+        self._video_interval = max(1, int(os.environ.get("HUDATHON_VIDEO_INTERVAL", "5")))
+        self._video_width = int(os.environ.get("HUDATHON_VIDEO_WIDTH", "640"))
+        self._video_height = int(os.environ.get("HUDATHON_VIDEO_HEIGHT", "360"))
+        self._video_camera = os.environ.get("HUDATHON_VIDEO_CAMERA", "agentview")
+        self._video_frame_index = 0
+        self._video_tick = 0
+        self._video_renderer: mujoco.Renderer | None = None
+        self._video_renderer_size: tuple[int, int] | None = None
         # Episode/task state (set on reset).
         self._target_object = "block"
         self._instruction = ""
@@ -92,6 +102,10 @@ class HudathonFrankaBridge(RobotBridge):
         if self._renderer is not None:  # close GL before interpreter teardown
             self._renderer.close()
             self._renderer = None
+        if self._video_renderer is not None:
+            self._video_renderer.close()
+            self._video_renderer = None
+            self._video_renderer_size = None
 
     async def reset(  # type: ignore[override]
         self,
@@ -102,6 +116,7 @@ class HudathonFrankaBridge(RobotBridge):
         seed: int = 0,
         max_steps: int = 200,
         reward_spec: dict[str, Any] | str | None = None,
+        video_dir: str | None = None,
     ) -> str:
         """Load the scene (home pose + settle), then return the instruction prompt.
 
@@ -141,6 +156,16 @@ class HudathonFrankaBridge(RobotBridge):
         if self._renderer is not None:
             self._renderer.close()
             self._renderer = None
+        if self._video_renderer is not None:
+            self._video_renderer.close()
+            self._video_renderer = None
+            self._video_renderer_size = None
+        self._video_frame_index = 0
+        self._video_tick = 0
+        self._apply_video_settings(video_dir)
+        if self._video_dir:
+            Path(self._video_dir).mkdir(parents=True, exist_ok=True)
+            self._capture_video_frame()
         self._start_recording_episode(seed)
         return instruction
 
@@ -161,6 +186,9 @@ class HudathonFrankaBridge(RobotBridge):
             sim._sync_render_data()
 
         self._record_step(action)
+        self._video_tick += 1
+        if self._video_dir and self._video_tick % self._video_interval == 0:
+            self._capture_video_frame()
         self._final_z = self._object_z()
         # success = goal achieved (block lifted); a step-count timeout terminates the
         # episode but is NOT a success (spec: timeout != win).
@@ -206,6 +234,8 @@ class HudathonFrankaBridge(RobotBridge):
             "subscores": details.get("subscores", []),
             "success_clauses": details.get("success_clauses", []),
         }
+        if self._video_dir:
+            self._capture_video_frame()
         self._finish_recording_episode(res)
         return res
 
@@ -225,6 +255,44 @@ class HudathonFrankaBridge(RobotBridge):
         if isinstance(obj, dict) and "error" not in obj:
             return float(obj["position"]["z"])
         return 0.0
+
+    # ── rollout video frames ──────────────────────────────────────────────────
+    def _apply_video_settings(self, video_dir: str | None = None) -> None:
+        """Pick up video capture settings from reset() arg or process env."""
+        self._video_dir = video_dir or os.environ.get("HUDATHON_VIDEO_DIR")
+        self._video_interval = max(1, int(os.environ.get("HUDATHON_VIDEO_INTERVAL", "5")))
+        self._video_width = int(os.environ.get("HUDATHON_VIDEO_WIDTH", "640"))
+        self._video_height = int(os.environ.get("HUDATHON_VIDEO_HEIGHT", "360"))
+        self._video_camera = os.environ.get("HUDATHON_VIDEO_CAMERA", "agentview")
+
+    def _capture_video_frame(self) -> None:
+        if not self._video_dir:
+            return
+        from PIL import Image
+
+        sim = sim_server._sim
+        if sim.newton_model is None:
+            return
+        rmodel = sim.mj_model or sim.solver.mj_model
+        rdata = sim.mj_data or sim.solver.mj_data
+        with sim.lock:
+            sim._sync_render_data()
+            if (
+                self._video_renderer is None
+                or self._video_renderer_size != (self._video_width, self._video_height)
+            ):
+                if self._video_renderer is not None:
+                    self._video_renderer.close()
+                self._video_renderer = mujoco.Renderer(
+                    rmodel, height=self._video_height, width=self._video_width,
+                )
+                self._video_renderer_size = (self._video_width, self._video_height)
+            cam = sim_server._resolve_camera(rmodel, self._video_camera)
+            self._video_renderer.update_scene(rdata, cam)
+            pixels = np.ascontiguousarray(self._video_renderer.render(), dtype=np.uint8)
+        out = Path(self._video_dir) / f"frame_{self._video_frame_index:04d}.png"
+        Image.fromarray(pixels).save(out)
+        self._video_frame_index += 1
 
     # ── rendering ────────────────────────────────────────────────────────────
     def _render(self, camera: str, rmodel: Any, rdata: Any) -> np.ndarray:
