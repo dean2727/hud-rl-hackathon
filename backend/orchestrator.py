@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from backend.gizmo_client import GizmoClient, GizmoError
+from backend.gizmo_client import GIZMO_TERMINAL_FAIL, GIZMO_TERMINAL_OK, GizmoClient, GizmoError
 from backend.improve import train_further
 from backend.rollout import run_rollout
 from backend.runs import ActivityState, RunState, emit
@@ -117,11 +117,14 @@ async def _stage_generate_scene(run: RunState) -> None:
     run.scene_id = scene_id
 
     async for evt in client.stream_job_events(job_id):
+        t = evt.get("type")
+        if t == "ping":
+            continue  # heartbeat - don't relay (the UI collapses gizmo events to a bar)
         await emit(run, "gizmo", evt)
-        if evt["type"] == "error":
-            raise GizmoError(f"Gizmo job {job_id} reported an error: {evt['data']}")
-        if evt["type"] == "done":
-            break
+        if t in GIZMO_TERMINAL_FAIL:
+            raise GizmoError(f"Gizmo job {job_id} {t}: {evt.get('data')}")
+        if t in GIZMO_TERMINAL_OK:
+            break  # stop reading so Gizmo's endless pings don't keep the stream open
 
     final = await client.get_job(job_id, include_result=False)
     status = (final.get("job") or {}).get("status")

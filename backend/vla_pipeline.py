@@ -21,7 +21,7 @@ import json
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from backend.gizmo_client import GizmoClient
+from backend.gizmo_client import GIZMO_TERMINAL_FAIL, GIZMO_TERMINAL_OK, GizmoClient
 from backend.vision import bias_prompt_for_vla
 from backend.vla_scene import TaskSpec, VlaSceneError, adapt_vla_scene, validate_vla_scene
 
@@ -42,10 +42,13 @@ async def _generate_and_export(
     await on_event("vla_generate", {"status": "started", "scene_id": gizmo_scene_id, "job_id": job_id})
 
     async for evt in client.stream_job_events(job_id):
+        t = evt.get("type")
+        if t == "ping":
+            continue
         await on_event("gizmo", evt)
-        if evt["type"] == "error":
-            raise VlaSceneError(f"Gizmo job {job_id} errored: {evt['data']}")
-        if evt["type"] == "done":
+        if t in GIZMO_TERMINAL_FAIL:
+            raise VlaSceneError(f"Gizmo job {job_id} {t}: {evt.get('data')}")
+        if t in GIZMO_TERMINAL_OK:
             break
 
     final = await client.get_job(job_id, include_result=False)

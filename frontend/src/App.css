@@ -73,6 +73,9 @@
   align-items: start;
 }
 
+/* let grid/flex children shrink so long text wraps instead of blowing out width */
+.layout > div { min-width: 0; }
+
 @media (max-width: 880px) {
   .layout { grid-template-columns: 1fr; }
   .app-header h1 { font-size: 32px; }
@@ -83,6 +86,7 @@
   position: relative;
   min-height: 540px;
 }
+.right-col.started { min-height: 0; }
 
 .robot-hero {
   position: absolute;
@@ -92,13 +96,17 @@
   align-items: center;
   justify-content: center;
   gap: 22px;
-  /* slide-down-and-out choreography */
+  /* NB: no fill-mode animation here — a held `animation: ... both` would pin the
+     transform and block the exit slide. Entrance is a plain transition instead. */
   transition: transform 0.75s cubic-bezier(0.5, 0, 0.4, 1), opacity 0.55s ease;
-  animation: rise 0.7s ease both;
 }
 
+/* Once a run starts: slide off the right edge of the page (on top, so it's visible). */
 .robot-hero.robot-exit {
-  transform: translateY(135%);
+  z-index: 40;
+  height: 540px;
+  bottom: auto;
+  transform: translateX(130%);
   opacity: 0;
   pointer-events: none;
 }
@@ -222,6 +230,33 @@
 .panel:hover {
   border-color: var(--border-strong);
   box-shadow: 0 18px 50px -22px rgba(79, 140, 255, 0.4);
+}
+
+/* clockwise blue/purple comet around the border while a run is loading */
+.panel.loading::before {
+  content: '';
+  position: absolute;
+  inset: -1.5px;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: conic-gradient(
+    from var(--bd-angle),
+    transparent 0deg,
+    transparent 250deg,
+    rgba(124, 92, 255, 0.9) 305deg,
+    rgba(34, 211, 238, 0.95) 345deg,
+    transparent 360deg
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: rotate-border 2.4s linear infinite;
+  pointer-events: none;
+}
+
+.panel.loading {
+  box-shadow: 0 0 30px -10px rgba(124, 92, 255, 0.45);
 }
 
 .panel + .panel,
@@ -375,8 +410,32 @@
 .tl-dot.error { background: var(--red); box-shadow: 0 0 8px var(--red); }
 .tl-dot.gizmo { background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
 
-.tl-body .tl-title { font-weight: 600; }
-.tl-body .tl-detail { color: var(--muted); font-size: 13px; }
+.tl-body { min-width: 0; }
+.tl-body .tl-title { font-weight: 600; overflow-wrap: anywhere; word-break: break-word; }
+.tl-body .tl-detail {
+  color: var(--muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* single-line Gizmo meta-stage progress bar (replaces the raw-event flood) */
+.gizmo-bar {
+  height: 7px;
+  border-radius: 6px;
+  background: rgba(12, 16, 28, 0.7);
+  overflow: hidden;
+  margin-top: 8px;
+}
+.gizmo-bar > div {
+  height: 100%;
+  border-radius: 6px;
+  background: var(--grad);
+  background-size: 200% 100%;
+  box-shadow: 0 0 12px rgba(34, 211, 238, 0.55);
+  transition: width 0.6s ease;
+  animation: shimmer 3s linear infinite;
+}
 
 /* ── Results ── */
 .result-card {

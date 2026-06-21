@@ -188,7 +188,7 @@ function App() {
                   <div style={{ height: 24 }} />
                 </>
               )}
-              <ProgressTimeline events={events} />
+              <ProgressTimeline events={events} loading={busy} />
               <ResultsPanel
                 results={results}
                 trainRounds={trainRounds}

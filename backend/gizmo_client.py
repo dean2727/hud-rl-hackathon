@@ -24,6 +24,12 @@ class GizmoError(RuntimeError):
     """Raised on a non-2xx response or a job that finishes in a failed/cancelled state."""
 
 
+# Terminal job-event types from the SSE stream. Once one arrives, stop reading the
+# stream (Gizmo keeps emitting `ping` heartbeats forever otherwise).
+GIZMO_TERMINAL_OK = {"job_succeeded", "done"}
+GIZMO_TERMINAL_FAIL = {"job_failed", "job_cancelled", "error"}
+
+
 class GizmoClient:
     def __init__(self, base_url: str | None = None, api_key: str | None = None) -> None:
         self.base_url = (base_url or settings.gizmo_base_url).rstrip("/")
