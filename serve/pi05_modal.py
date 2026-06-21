@@ -30,7 +30,11 @@ CACHE = "/cache"  # HF cache (checkpoint + processors), Volume-backed so it pers
 CHECKPOINTS = "/checkpoints"
 
 # lerobot is pinned to a git commit (0.5.2 isn't on PyPI; PyPI's 0.5.1 lacks pi05).
-_LEROBOT = "lerobot @ git+https://github.com/huggingface/lerobot.git@b8ad81bf397d59dda69ccfc7e74e847f0a9d4fbf"
+# The [pi] extra owns its whole ML stack (torch, transformers, scipy, safetensors,
+# huggingface-hub, einops, pillow, ...) with tested pins, so we don't re-list those:
+# re-listing them unpinned lets pip backtrack into source-only releases that fail to
+# build on debian_slim (sentencepiece; scipy via meson/OpenBLAS).
+_LEROBOT = "lerobot[pi] @ git+https://github.com/huggingface/lerobot.git@b8ad81bf397d59dda69ccfc7e74e847f0a9d4fbf"
 
 # Mount this package's serve/ dir so the container imports the SAME server code the
 # GPU box would run; only meaningful locally (the container hydrates the image).
@@ -40,12 +44,26 @@ image = (
     modal.Image.debian_slim(python_version="3.12")
     .apt_install("git", "ffmpeg")
     .pip_install(
-        "hud-python[robot]",  # openpi-client (the openpi/0 wire codec) + numpy
-        _LEROBOT,             # PI05Policy + pre/post processors
-        "torch", "transformers", "accelerate", "safetensors", "huggingface_hub",
-        "websockets", "msgpack", "pillow", "scipy", "einops",
+        # Plain hud-python, NOT hud-python[robot]. The [robot] extra pulls openpi-client,
+        # which pins numpy<2.0 -- a hard conflict with lerobot's numpy>=2.0. With the
+        # extra in the solve, pip silently backslides hud-python to an old release whose
+        # extra omits openpi-client, so `import openpi_client` fails at runtime. The base
+        # package still ships hud.agents.robot.model (it imports only numpy).
+        "hud-python>=0.6.5",          # hud.agents.robot.model.LeRobotModel (serve path)
+        _LEROBOT,                     # PI05Policy + pre/post processors + its pinned ML deps
+        "accelerate>=1.10.0,<2.0.0",  # transformers model loading; not in lerobot[pi], pin to its range
+        "websockets",                 # policy server transport + openpi-client codec dep
+        "msgpack",                    # openpi/0 wire codec dep (openpi-client below is --no-deps)
     )
-    .add_local_dir(str(_SERVE_DIR), "/root/serve", copy=True)
+    # openpi/0 wire codec, installed WITHOUT its deps: openpi-client's numpy<2.0 pin is
+    # overly conservative (msgpack_numpy.py is numpy-2 safe) and would otherwise reconflict
+    # with lerobot's numpy>=2.0. numpy/msgpack/pillow already come from the resolve above.
+    .pip_install("openpi-client>=0.1.2", extra_options="--no-deps")
+    .add_local_dir(
+        str(_SERVE_DIR), "/root/serve", copy=True,
+        # Skip caches so a stray .pyc write can't trip "modified during build process".
+        ignore=["**/__pycache__", "**/*.pyc"],
+    )
     .env({"HF_HOME": CACHE, "PYTHONPATH": "/root"})
 )
 

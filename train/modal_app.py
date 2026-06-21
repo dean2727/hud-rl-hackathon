@@ -24,29 +24,41 @@ CHECKPOINTS = "/checkpoints"
 # local orchestrator (train/loop.py); harmless for a plain `modal run ::serve_policy`.
 SERVE_ADDR_QUEUE = "hudathon-serve-addr"
 
-_LEROBOT = "lerobot @ git+https://github.com/huggingface/lerobot.git@b8ad81bf397d59dda69ccfc7e74e847f0a9d4fbf"
+# lerobot[pi]: the pi0.5 policy extra. It owns its whole ML stack (torch, transformers,
+# scipy, safetensors, huggingface-hub, einops, pillow, ...) with tested version pins, so we
+# don't re-list those here. Re-listing them unpinned lets pip's resolver backtrack into
+# source-only releases that fail to build on debian_slim (sentencepiece, scipy meson/OpenBLAS).
+_LEROBOT = "lerobot[pi] @ git+https://github.com/huggingface/lerobot.git@b8ad81bf397d59dda69ccfc7e74e847f0a9d4fbf"
 
 image = (
     modal.Image.debian_slim(python_version="3.12")
     .apt_install("git", "ffmpeg")
     .pip_install(
-        "hud-python[robot]",
-        _LEROBOT,
-        "torch",
-        # Pin to lerobot's own `transformers-dep` range. Unpinned, pip backtracks
-        # (lerobot pins huggingface-hub>=1.0, which only transformers 5.x supports)
-        # down to ancient transformers that need a source build of sentencepiece -> fails.
-        "transformers>=5.4.0,<5.6.0",
-        "accelerate",
-        "safetensors",
-        "huggingface_hub",
-        "websockets",
-        "msgpack",
-        "pillow",
-        "scipy",
-        "einops",
+        # Plain hud-python, NOT hud-python[robot]. The [robot] extra pulls openpi-client,
+        # which pins numpy<2.0 -- a hard conflict with lerobot's numpy>=2.0. With the
+        # extra in the solve, pip silently backslides hud-python to an old release whose
+        # extra omits openpi-client, so `import openpi_client` fails at runtime. The base
+        # package still ships hud.agents.robot.model (it imports only numpy).
+        "hud-python>=0.6.5",          # hud.agents.robot.model.LeRobotModel (serve path)
+        _LEROBOT,                     # PI05Policy + pre/post processors + its pinned ML deps
+        "accelerate>=1.10.0,<2.0.0",  # transformers model loading; not in lerobot[pi], pin to its range
+        "websockets",                 # policy server transport + openpi-client codec dep
+        "msgpack",                    # openpi/0 wire codec dep (openpi-client below is --no-deps)
     )
-    .add_local_dir(str(ROOT), APP_ROOT, copy=True)
+    # openpi/0 wire codec, installed WITHOUT its deps: openpi-client's numpy<2.0 pin is
+    # overly conservative (msgpack_numpy.py is numpy-2 safe) and would otherwise reconflict
+    # with lerobot's numpy>=2.0. numpy/msgpack/pillow already come from the resolve above.
+    .pip_install("openpi-client>=0.1.2", extra_options="--no-deps")
+    .add_local_dir(
+        str(ROOT), APP_ROOT, copy=True,
+        # Exclude .git (its FETCH_HEAD churns mid-build -> "modified during build process"),
+        # caches, and large/volatile trees the image never reads: datasets/checkpoints live
+        # in Modal Volumes; frontend/wheels/telemetry-dump are eval-machine/local-only.
+        ignore=[
+            ".git", "**/__pycache__", "**/*.pyc",
+            "datasets", "checkpoints", "wheels", "frontend", "telemetry-dump",
+        ],
+    )
     .env({"HF_HOME": HF_CACHE, "PYTHONPATH": APP_ROOT})
 )
 
