@@ -36,6 +36,8 @@ function App() {
 
   const cleanActivities = activities.map((a) => a.trim()).filter(Boolean)
   const busy = phase === 'running' || phase === 'awaiting'
+  // Once a run starts the robot slides off and the progress panels slide in from the top.
+  const started = phase !== 'idle'
   const canStart =
     !busy &&
     photos.length >= 1 &&
@@ -118,7 +120,15 @@ function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>🤖 Robot Skill Learner</h1>
+        <div className="badge-row">
+          <span className="pill">Gizmo</span>
+          <span className="pill">π₀.₅ VLA</span>
+          <span className="pill">Newton sim</span>
+        </div>
+        <h1>
+          <span className="logo">🤖</span>
+          <span className="title-grad">Robot Skill Learner</span>
+        </h1>
         <p>
           Show the robot where it lives, tell it what to do, and watch it learn
           each skill in simulation.
@@ -153,26 +163,40 @@ function App() {
           {error && <div className="error-banner">{error}</div>}
         </div>
 
-        <div>
-          {phase === 'awaiting' && (
-            <>
-              <SceneReview
-                scenePrompt={sceneDraft}
-                objects={detectedObjects}
-                onChange={setSceneDraft}
-                onConfirm={handleConfirmScene}
-                submitting={false}
+        <div className={`right-col ${started ? 'started' : ''}`}>
+          <div className={`robot-hero ${started ? 'robot-exit' : ''}`} aria-hidden={started}>
+            <div className="robot-stage">
+              <div className="robot-bubble">
+                Add photos &amp; activities on the left, then hit{' '}
+                <strong>Start Learning</strong> and I'll get to work →
+              </div>
+              <img src="/robot.jpg" alt="A friendly robot" className="robot-img" />
+            </div>
+          </div>
+
+          {started && (
+            <div className="run-panels">
+              {phase === 'awaiting' && (
+                <>
+                  <SceneReview
+                    scenePrompt={sceneDraft}
+                    objects={detectedObjects}
+                    onChange={setSceneDraft}
+                    onConfirm={handleConfirmScene}
+                    submitting={false}
+                  />
+                  <div style={{ height: 24 }} />
+                </>
+              )}
+              <ProgressTimeline events={events} />
+              <ResultsPanel
+                results={results}
+                trainRounds={trainRounds}
+                trainingIndices={trainingIndices}
+                onTrainFurther={handleTrainFurther}
               />
-              <div style={{ height: 24 }} />
-            </>
+            </div>
           )}
-          <ProgressTimeline events={events} />
-          <ResultsPanel
-            results={results}
-            trainRounds={trainRounds}
-            trainingIndices={trainingIndices}
-            onTrainFurther={handleTrainFurther}
-          />
         </div>
       </div>
     </div>
