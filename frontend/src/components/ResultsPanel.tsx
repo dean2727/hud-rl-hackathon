@@ -1,3 +1,5 @@
+import { RewardChart, type ChartDot, type ChartSeries } from './RewardChart'
+
 export interface ActivityResult {
   activity_index: number
   activity: string
@@ -16,12 +18,39 @@ export interface TrainRound {
   mean_reward: number
 }
 
+export interface ModalRollout {
+  round: number
+  index: number
+  reward: number
+  success: boolean
+}
+
+export interface ModalTraining {
+  rollouts: ModalRollout[]
+  rounds: { round: number; mean_reward: number; success_rate: number }[]
+  curate: {
+    round: number
+    threshold: number
+    selected: number
+    available: number
+    mean_selected_reward: number
+  }[]
+  stages: { round: number; stage: string; status: string }[]
+  status: 'running' | 'done' | 'error'
+  message?: string
+}
+
 interface Props {
   results: ActivityResult[]
   trainRounds: Record<number, TrainRound[]>
+  modalTraining: Record<number, ModalTraining>
   trainingIndices: Set<number>
+  modalIndices: Set<number>
   onTrainFurther: (activityIndex: number) => void
+  onTrainModal: (activityIndex: number) => void
 }
+
+const STAGE_ORDER = ['serve', 'eval', 'curate', 'finetune']
 
 function statusBadge(r: ActivityResult) {
   if (r.status === 'running')
@@ -33,11 +62,94 @@ function statusBadge(r: ActivityResult) {
   return <span className="badge">pending</span>
 }
 
+function ModalTrainingView({ mt }: { mt: ModalTraining }) {
+  // Scatter: every collected rollout, green when it succeeded.
+  const dots: ChartDot[] = mt.rollouts.map((r, i) => ({
+    x: i,
+    y: r.reward,
+    color: r.success ? '#34d399' : '#60a5fa',
+  }))
+
+  // Mean line: one point per round, placed at the centre of that round's rollouts.
+  const roundXs: Record<number, number[]> = {}
+  mt.rollouts.forEach((r, i) => (roundXs[r.round] ??= []).push(i))
+  const meanPoints = mt.rounds
+    .map((rd) => {
+      const xs = roundXs[rd.round] ?? []
+      const x = xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : rd.round
+      return { x, y: rd.mean_reward }
+    })
+    .sort((a, b) => a.x - b.x)
+  const series: ChartSeries[] = [
+    { label: 'round mean', color: '#fbbf24', points: meanPoints },
+  ]
+
+  const threshold = mt.curate.at(-1)?.threshold
+  const lastStage = mt.stages.at(-1)
+  const lastCurate = mt.curate.at(-1)
+  const lastRound = mt.rounds.at(-1)
+
+  return (
+    <div className="modal-train">
+      <div className="mt-head">
+        <strong>VLA fine-tune (collect → curate → train)</strong>
+        {mt.status === 'running' && lastStage && (
+          <span className="mt-stage">
+            {STAGE_ORDER.map((s) => (
+              <span
+                key={s}
+                className={`mt-step ${lastStage.stage === s ? 'active' : ''}`}
+              >
+                {s}
+              </span>
+            ))}
+          </span>
+        )}
+        {mt.status === 'done' && <span className="badge success">done</span>}
+        {mt.status === 'error' && <span className="badge fail">failed</span>}
+      </div>
+
+      {dots.length > 0 && (
+        <RewardChart
+          dots={dots}
+          series={series}
+          yRef={
+            threshold != null
+              ? { value: threshold, label: `curate ≥ ${threshold}` }
+              : undefined
+          }
+          xLabel="rollout # (collected in order)"
+        />
+      )}
+
+      <div className="mt-stats">
+        {lastRound && (
+          <span>
+            mean {lastRound.mean_reward.toFixed(3)} · success{' '}
+            {(lastRound.success_rate * 100).toFixed(0)}%
+          </span>
+        )}
+        {lastCurate && (
+          <span>
+            kept {lastCurate.selected}/{lastCurate.available} for training
+          </span>
+        )}
+      </div>
+      {mt.status === 'error' && mt.message && (
+        <div className="rc-content">{mt.message}</div>
+      )}
+    </div>
+  )
+}
+
 export function ResultsPanel({
   results,
   trainRounds,
+  modalTraining,
   trainingIndices,
+  modalIndices,
   onTrainFurther,
+  onTrainModal,
 }: Props) {
   if (results.length === 0) return null
 
@@ -46,7 +158,10 @@ export function ResultsPanel({
       <h2>Results</h2>
       {results.map((r) => {
         const rounds = trainRounds[r.activity_index] ?? []
+        const mt = modalTraining[r.activity_index]
         const isTraining = trainingIndices.has(r.activity_index)
+        const isModalTraining =
+          modalIndices.has(r.activity_index) || mt?.status === 'running'
         const pct =
           r.reward != null ? Math.max(0, Math.min(1, r.reward)) * 100 : 0
         return (
@@ -82,14 +197,23 @@ export function ResultsPanel({
               </div>
             )}
 
+            {mt && <ModalTrainingView mt={mt} />}
+
             {r.can_train_further && (
-              <button
-                style={{ marginTop: 10 }}
-                disabled={isTraining}
-                onClick={() => onTrainFurther(r.activity_index)}
-              >
-                {isTraining ? 'Training…' : 'Train further'}
-              </button>
+              <div className="rc-actions">
+                <button
+                  disabled={isTraining}
+                  onClick={() => onTrainFurther(r.activity_index)}
+                >
+                  {isTraining ? 'Training…' : 'Train further'}
+                </button>
+                <button
+                  disabled={isModalTraining}
+                  onClick={() => onTrainModal(r.activity_index)}
+                >
+                  {isModalTraining ? 'Fine-tuning…' : 'Fine-tune (VLA)'}
+                </button>
+              </div>
             )}
           </div>
         )

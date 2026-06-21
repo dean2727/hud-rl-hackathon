@@ -18,7 +18,9 @@ from backend.schemas import (
     RunStateResponse,
     SceneConfirmAccepted,
     TrainFurtherAccepted,
+    TrainModalAccepted,
 )
+from backend.train_modal import run_modal_training
 
 router = APIRouter(prefix="/api")
 
@@ -108,3 +110,19 @@ async def train_further_route(run_id: str, activity_index: int) -> TrainFurtherA
         raise HTTPException(404, "run not found")
     asyncio.create_task(run_train_further(run, activity_index))
     return TrainFurtherAccepted()
+
+
+@router.post("/runs/{run_id}/train-modal", response_model=TrainModalAccepted)
+async def train_modal_route(
+    run_id: str, activity_index: int, dry_run: bool = True, rounds: int = 1,
+) -> TrainModalAccepted:
+    """Run the real pi0.5 BC loop (eval -> curate -> finetune) with live SSE.
+
+    dry_run=True (default) streams the same events from recorded/synthetic reward so
+    the chart can be demoed with no GPU spend; dry_run=false drives Modal A100s.
+    """
+    run = store.get(run_id)
+    if run is None:
+        raise HTTPException(404, "run not found")
+    asyncio.create_task(run_modal_training(run, activity_index, dry_run=dry_run, rounds=rounds))
+    return TrainModalAccepted()

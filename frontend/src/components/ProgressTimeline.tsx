@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import type { TimelineEvent } from '../api'
 
 const STAGE_LABELS: Record<string, string> = {
-  describing_photos: 'Describing photos (Gemma vision)',
+  describing_photos: 'Describing photos (DeepMind vision)',
   generating_scene: 'Generating 3D scene (Gizmo)',
   composing_scene: 'Composing scene + robot gripper',
   mapping_activities: 'Mapping activities to tasks',

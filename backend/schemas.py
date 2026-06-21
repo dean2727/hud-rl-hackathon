@@ -41,6 +41,10 @@ class TrainFurtherAccepted(BaseModel):
     ok: bool = True
 
 
+class TrainModalAccepted(BaseModel):
+    ok: bool = True
+
+
 class ConfirmSceneRequest(BaseModel):
     scene_prompt: str  # the user-reviewed (possibly edited) description to feed Gizmo
 

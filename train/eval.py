@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from collections.abc import Callable
 import json
 import os
 import sys
@@ -41,12 +42,59 @@ def write_reward_sidecar(job: Any, record_dir: Path) -> Path:
     return path
 
 
+async def _watch_episodes(
+    record_dir: Path,
+    on_rollout: Callable[[dict[str, Any]], None],
+    stop: asyncio.Event,
+    *,
+    poll_s: float = 0.5,
+) -> None:
+    """Emit one event per episode as the bridge finishes writing its episode.json.
+
+    HUD's Taskset.run() returns all rollouts at once, but the env-side bridge dumps
+    each episode to disk the instant it completes - so tailing the record dir is how
+    we stream per-rollout reward live during collection (rather than only at the end).
+    """
+    seen: set[str] = set()
+
+    def scan() -> None:
+        for ep in sorted(record_dir.glob("episode_*")):
+            if ep.name in seen:
+                continue
+            meta = ep / "episode.json"
+            if not meta.exists():
+                continue  # still being written
+            try:
+                data = json.loads(meta.read_text())
+            except (json.JSONDecodeError, OSError):
+                continue
+            seen.add(ep.name)
+            try:
+                index = int(ep.name.rsplit("_", 1)[-1])
+            except ValueError:
+                index = len(seen) - 1
+            on_rollout({
+                "index": index,
+                "reward": float(data.get("score", data.get("total_reward", 0.0)) or 0.0),
+                "success": bool(data.get("success", False)),
+            })
+
+    while not stop.is_set():
+        scan()
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=poll_s)
+        except asyncio.TimeoutError:
+            pass
+    scan()  # final drain for episodes written just before stop
+
+
 async def run_eval_batch(
     *,
     remote: str,
     record_dir: Path,
     config: TrainConfig | None = None,
     reward_spec: RewardSpec | None = None,
+    on_rollout: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     cfg = config or TrainConfig()
     record_dir.mkdir(parents=True, exist_ok=True)
@@ -73,11 +121,24 @@ async def run_eval_batch(
     # HUD's robot recorder reads this on newer SDKs; the bridge also records via
     # HUDATHON_RECORD_DIR for this template.
     setattr(agent, "save", True)
-    job = await Taskset("hudathon-vla", tasks).run(
-        agent,
-        runtime=LocalRuntime(str(ROOT / "environment" / "vla_env.py")),
-        max_concurrent=cfg.max_concurrent,
+
+    # Tail the record dir so callers can stream per-rollout reward as episodes land.
+    stop = asyncio.Event()
+    watcher = (
+        asyncio.create_task(_watch_episodes(record_dir, on_rollout, stop))
+        if on_rollout is not None
+        else None
     )
+    try:
+        job = await Taskset("hudathon-vla", tasks).run(
+            agent,
+            runtime=LocalRuntime(str(ROOT / "environment" / "vla_env.py")),
+            max_concurrent=cfg.max_concurrent,
+        )
+    finally:
+        if watcher is not None:
+            stop.set()
+            await watcher
     sidecar = write_reward_sidecar(job, record_dir)
     rewards = [float(getattr(run, "reward", 0.0) or 0.0) for run in getattr(job, "runs", [])]
     successes = [r >= cfg.success_threshold for r in rewards]

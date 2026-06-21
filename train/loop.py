@@ -29,11 +29,18 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from collections.abc import Callable
 import dataclasses
 import json
 import sys
 from pathlib import Path
 from typing import Any
+
+# Stage/round progress callback: progress(event_name, data). Sync so it works
+# whether run_round is called from the CLI or marshalled onto a thread by the
+# web backend (backend/train_modal.py bridges it onto the SSE event bus).
+ProgressFn = Callable[[str, dict[str, Any]], None]
+RolloutFn = Callable[[dict[str, Any]], None]
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT_DIR))
@@ -50,7 +57,14 @@ def _round_name(idx: int) -> str:
     return f"round-{idx:03d}"
 
 
-def _serve_and_eval(*, checkpoint: str, record_dir: Path, cfg: TrainConfig, wait_s: int) -> dict[str, Any]:
+def _serve_and_eval(
+    *,
+    checkpoint: str,
+    record_dir: Path,
+    cfg: TrainConfig,
+    wait_s: int,
+    on_rollout: RolloutFn | None = None,
+) -> dict[str, Any]:
     """Spawn the Modal policy server, wait for its tunnel address, run a local eval
     batch against it, then stop the server. Returns the eval summary."""
     import modal
@@ -67,10 +81,16 @@ def _serve_and_eval(*, checkpoint: str, record_dir: Path, cfg: TrainConfig, wait
         try:
             remote = addr_q.get(timeout=wait_s)  # "host:port" published by serve_policy
             print(f"[loop] policy serving at {remote}; running {cfg.group} eval rollouts", flush=True)
-            summary = asyncio.run(run_eval_batch(remote=remote, record_dir=record_dir, config=cfg))
+            summary = asyncio.run(run_eval_batch(
+                remote=remote, record_dir=record_dir, config=cfg, on_rollout=on_rollout))
         finally:
             call.cancel()  # free the A100 as soon as eval is done
     return summary
+
+
+def _emit(progress: ProgressFn | None, event: str, **data: Any) -> None:
+    if progress is not None:
+        progress(event, data)
 
 
 def _upload_dataset(local_dir: Path, vol_subdir: str) -> str:
@@ -107,6 +127,8 @@ def run_round(
     dry_run: bool,
     episodes_dir: Path | None = None,
     cfg: TrainConfig | None = None,
+    progress: ProgressFn | None = None,
+    on_rollout: RolloutFn | None = None,
 ) -> dict[str, Any]:
     cfg = cfg or TrainConfig()
     rname = _round_name(round_idx)
@@ -137,14 +159,28 @@ def run_round(
             result["note"] = f"no episodes under {raw_dir}; run a real eval first to test curate/convert"
         return result
 
-    # 1) serve on Modal + eval locally against it
-    result["eval"] = _serve_and_eval(checkpoint=checkpoint, record_dir=raw_dir, cfg=cfg, wait_s=SERVE_WAIT_S)
+    # 1) serve on Modal + eval locally against it (per-rollout reward streams via on_rollout)
+    _emit(progress, "train_stage", round=round_idx, stage="serve", status="started")
+    result["eval"] = _serve_and_eval(
+        checkpoint=checkpoint, record_dir=raw_dir, cfg=cfg, wait_s=SERVE_WAIT_S,
+        on_rollout=(lambda d: on_rollout({**d, "round": round_idx})) if on_rollout else None,
+    )
+    _emit(progress, "eval_summary", round=round_idx,
+          mean_reward=result["eval"]["mean_reward"],
+          success_rate=result["eval"]["success_rate"],
+          rewards=result["eval"]["rewards"])
 
     # 2) curate the recorded episodes by reward
+    _emit(progress, "train_stage", round=round_idx, stage="curate", status="started")
     result["curated"] = curate_episodes(
         source_dir=raw_dir, dest_dir=curated_dir, threshold=cfg.curation_threshold)
+    _emit(progress, "curate", round=round_idx, threshold=cfg.curation_threshold,
+          selected=result["curated"]["selected"], available=result["curated"]["available"],
+          mean_selected_reward=result["curated"]["mean_selected_reward"])
     if result["curated"]["selected"] == 0:
         result["stop"] = "no episodes cleared the curation threshold; nothing to fine-tune"
+        _emit(progress, "train_stage", round=round_idx, stage="finetune", status="skipped",
+              detail={"reason": "no episodes cleared the curation threshold"})
         return result
 
     # 3) convert curated episodes -> LeRobot dataset
@@ -155,12 +191,16 @@ def run_round(
     result["dataset_volume_path"] = _upload_dataset(ds_dir, vol_subdir)
 
     # 5) fine-tune on Modal, committing the new checkpoint to the Volume
+    _emit(progress, "train_stage", round=round_idx, stage="finetune", status="started",
+          detail={"steps": steps, "selected": result["curated"]["selected"]})
     result["finetune"] = _finetune(
         repo_id=repo_id, dataset_vol_subdir=vol_subdir, output_name=rname,
         policy_path=checkpoint, steps=steps, batch_size=batch_size)
     # lerobot-train writes its loadable weights under output_dir/checkpoints/last/pretrained_model;
     # confirm the exact subdir from the finetune output before serving it next round.
     result["new_checkpoint"] = f"volume:{rname}"
+    _emit(progress, "train_stage", round=round_idx, stage="finetune", status="completed",
+          detail={"new_checkpoint": result["new_checkpoint"]})
     return result
 
 

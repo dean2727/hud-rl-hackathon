@@ -35,9 +35,12 @@ from hud.environment.robot import RobotBridge
 # step machinery + the Franka EE controller. We drive its module singleton (one scene
 # per rollout process - the VLA path never shares it with the LLM `mcp` tool path,
 # which lives in a different served env).
-from rewards.engine import RewardComputation, compute_pick_reward
+from rewards.engine import RewardComputation
+from rewards.predicates import Baseline
+from rewards.program import RewardProgram, to_program
 from rewards.spec import RewardSpec
 from sim import control as ctl
+from sim import reward_view
 from sim import server as sim_server
 
 
@@ -65,13 +68,13 @@ class HudathonFrankaBridge(RobotBridge):
         self._target_object = "block"
         self._instruction = ""
         self._lift_height = 0.55
-        self._initial_z = 0.43
         self._final_z = 0.43
-        self._reward_spec = RewardSpec.pick(
+        self._program = to_program(RewardSpec.pick(
             instruction="pick up the red block",
             target_object="block",
             lift_height=0.55,
-        )
+        ))
+        self._baseline = Baseline()
         self._max_steps = 200
         # Reused offscreen renderer (one per size; recreating per frame leaks GL).
         self._renderer: mujoco.Renderer | None = None
@@ -112,19 +115,28 @@ class HudathonFrankaBridge(RobotBridge):
 
         self._target_object = target_object
         self._instruction = instruction
-        self._reward_spec = (
-            RewardSpec.parse(reward_spec)
+        # Build the executable reward program. Accepts a full reward *program*
+        # (the dynamic path, from backend/reward_compiler.py), a legacy archetype
+        # RewardSpec, or nothing (default: pick the target).
+        self._program = (
+            to_program(reward_spec)
             if reward_spec is not None
-            else RewardSpec.pick(
+            else to_program(RewardSpec.pick(
                 instruction=instruction,
                 target_object=target_object,
                 lift_height=lift_height,
-            )
+            ))
         )
-        self._lift_height = float(self._reward_spec.params.get("lift_height", lift_height))
+        if self._program.target_object:
+            self._target_object = self._program.target_object
+        self._lift_height = lift_height
         self._max_steps = max_steps
-        self._initial_z = self._object_z()
-        self._final_z = self._initial_z
+        # Snapshot rest positions for the bodies the program references (the basis
+        # for "lifted off its start" / "back on the surface"), then start grading.
+        view = reward_view.BridgeSimView(sim_server._sim)
+        objs = self._program.referenced_objects() or [self._target_object]
+        self._baseline = reward_view.snapshot_baseline(view, objs)
+        self._final_z = self._object_z()
         # reset() builds a fresh MuJoCo model, so drop the renderer bound to the old one.
         if self._renderer is not None:
             self._renderer.close()
@@ -181,15 +193,18 @@ class HudathonFrankaBridge(RobotBridge):
         the template emits (full lift scores 1.0; a partial lift gets partial credit).
         """
         reward = self._compute_reward()
+        details = reward.details or {}
         res = {
             "score": reward.score,
             "success": reward.success,
             "total_reward": reward.score,
-            "lift_progress": reward.progress,
+            "progress": reward.progress,
+            "lift_progress": reward.progress,  # back-compat alias (environment/vla_env.py)
             "final_z": round(self._final_z, 4),
             "lift_height": self._lift_height,
-            "reward_spec": self._reward_spec.as_dict(),
-            "subscores": reward.subscores(self._reward_spec),
+            "reward_spec": self._program.as_dict(),
+            "subscores": details.get("subscores", []),
+            "success_clauses": details.get("success_clauses", []),
         }
         self._finish_recording_episode(res)
         return res
@@ -202,15 +217,8 @@ class HudathonFrankaBridge(RobotBridge):
         return self._compute_reward().score
 
     def _compute_reward(self) -> RewardComputation:
-        if self._reward_spec.archetype != "pick":
-            raise NotImplementedError(
-                f"VLA bridge currently supports pick rewards, got {self._reward_spec.archetype!r}"
-            )
-        return compute_pick_reward(
-            self._reward_spec,
-            initial_z=self._initial_z,
-            final_z=self._final_z,
-        )
+        view = reward_view.BridgeSimView(sim_server._sim)
+        return self._program.evaluate(view, self._baseline)
 
     def _object_z(self) -> float:
         obj = sim_server.get_object_state(object_name=self._target_object)
@@ -252,7 +260,7 @@ class HudathonFrankaBridge(RobotBridge):
         self._step_log.close()
         (self._ep_dir / "episode.json").write_text(json.dumps({
             "instruction": self._instruction, "target_object": self._target_object,
-            "lift_height": self._lift_height, "reward_spec": self._reward_spec.as_dict(),
+            "lift_height": self._lift_height, "reward_spec": self._program.as_dict(),
             "steps": self._rec_t,
             "recorded_at": time.time(), **res,
         }, indent=2) + "\n")

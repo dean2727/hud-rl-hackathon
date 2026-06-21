@@ -502,6 +502,84 @@
   border-bottom: 1px solid var(--border);
 }
 
+/* ── VLA fine-tune: live reward chart + stage indicator ── */
+.modal-train {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.mt-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+.mt-stage { display: inline-flex; gap: 6px; margin-left: auto; }
+.mt-step {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.mt-step.active {
+  color: #fde68a;
+  border-color: var(--amber);
+  background: rgba(251, 191, 36, 0.14);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+.mt-stats {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 8px;
+}
+
+.reward-chart {
+  margin: 12px 0 4px;
+  background: rgba(12, 16, 28, 0.55);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px 10px 4px;
+}
+.reward-chart svg { display: block; }
+.rcx-grid { stroke: rgba(255, 255, 255, 0.07); stroke-width: 1; }
+.rcx-ytick, .rcx-xlabel, .rcx-reflabel {
+  fill: var(--muted);
+  font-size: 8px;
+  font-family: inherit;
+}
+.rcx-ytick { text-anchor: end; }
+.rcx-xlabel { text-anchor: middle; }
+.rcx-reflabel { text-anchor: end; fill: #fca5a5; }
+.rcx-ref { stroke: rgba(251, 113, 133, 0.7); stroke-width: 1; stroke-dasharray: 4 3; }
+.rcx-dot { opacity: 0.9; }
+.rcx-line { filter: drop-shadow(0 0 4px rgba(251, 191, 36, 0.4)); }
+
+.rcx-legend {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--muted);
+  padding: 2px 4px 4px;
+}
+.rcx-leg { display: inline-flex; align-items: center; gap: 6px; }
+.rcx-swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.rcx-swatch-ref { background: rgba(251, 113, 133, 0.7); }
+
+.rc-actions { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
 .empty {
   color: var(--muted);
   font-size: 14px;

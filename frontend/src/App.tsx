@@ -5,6 +5,7 @@ import {
   createRun,
   openEventStream,
   trainFurther,
+  trainModal,
   type TimelineEvent,
 } from './api'
 import { PhotoUpload } from './components/PhotoUpload'
@@ -14,6 +15,7 @@ import { ProgressTimeline } from './components/ProgressTimeline'
 import {
   ResultsPanel,
   type ActivityResult,
+  type ModalTraining,
   type TrainRound,
 } from './components/ResultsPanel'
 
@@ -30,6 +32,7 @@ function App() {
   const [sceneDraft, setSceneDraft] = useState('')
   const [detectedObjects, setDetectedObjects] = useState<string[]>([])
   const [trainingIndices, setTrainingIndices] = useState<Set<number>>(new Set())
+  const [modalIndices, setModalIndices] = useState<Set<number>>(new Set())
   const esRef = useRef<EventSource | null>(null)
 
   useEffect(() => () => esRef.current?.close(), [])
@@ -50,6 +53,7 @@ function App() {
     setSceneDraft('')
     setDetectedObjects([])
     setTrainingIndices(new Set())
+    setModalIndices(new Set())
     setPhase('running')
     setRunId(null)
     try {
@@ -72,6 +76,14 @@ function App() {
         if (e.event === 'train_further_done' || e.event === 'train_further_error') {
           const idx = Number(e.data.activity_index)
           setTrainingIndices((prev) => {
+            const next = new Set(prev)
+            next.delete(idx)
+            return next
+          })
+        }
+        if (e.event === 'train_modal_done' || e.event === 'train_modal_error') {
+          const idx = Number(e.data.activity_index)
+          setModalIndices((prev) => {
             const next = new Set(prev)
             next.delete(idx)
             return next
@@ -110,7 +122,22 @@ function App() {
     }
   }
 
-  const { results, trainRounds } = useMemo(
+  async function handleTrainModal(activityIndex: number) {
+    if (!runId) return
+    setModalIndices((prev) => new Set(prev).add(activityIndex))
+    try {
+      await trainModal(runId, activityIndex) // dry_run by default: streams reward, no GPU spend
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      setModalIndices((prev) => {
+        const next = new Set(prev)
+        next.delete(activityIndex)
+        return next
+      })
+    }
+  }
+
+  const { results, trainRounds, modalTraining } = useMemo(
     () => deriveResults(events),
     [events],
   )
@@ -192,8 +219,11 @@ function App() {
               <ResultsPanel
                 results={results}
                 trainRounds={trainRounds}
+                modalTraining={modalTraining}
                 trainingIndices={trainingIndices}
+                modalIndices={modalIndices}
                 onTrainFurther={handleTrainFurther}
+                onTrainModal={handleTrainModal}
               />
             </div>
           )}
@@ -209,13 +239,24 @@ function App() {
 function deriveResults(events: TimelineEvent[]): {
   results: ActivityResult[]
   trainRounds: Record<number, TrainRound[]>
+  modalTraining: Record<number, ModalTraining>
 } {
   const byIndex = new Map<number, ActivityResult>()
   const trainRounds: Record<number, TrainRound[]> = {}
+  const modalTraining: Record<number, ModalTraining> = {}
+
+  const mt = (idx: number): ModalTraining =>
+    (modalTraining[idx] ??= {
+      rollouts: [],
+      rounds: [],
+      curate: [],
+      stages: [],
+      status: 'running',
+    })
 
   for (const e of events) {
+    const d = e.data
     if (e.event === 'rollout') {
-      const d = e.data
       const idx = Number(d.activity_index)
       byIndex.set(idx, {
         activity_index: idx,
@@ -229,19 +270,52 @@ function deriveResults(events: TimelineEvent[]): {
         can_train_further: Boolean(d.can_train_further),
       })
     } else if (e.event === 'train_round') {
-      const idx = Number(e.data.activity_index)
+      const idx = Number(d.activity_index)
       ;(trainRounds[idx] ??= []).push({
-        round: Number(e.data.round),
-        best_reward: Number(e.data.best_reward),
-        mean_reward: Number(e.data.mean_reward),
+        round: Number(d.round),
+        best_reward: Number(d.best_reward),
+        mean_reward: Number(d.mean_reward),
       })
+    } else if (e.event === 'eval_rollout') {
+      mt(Number(d.activity_index)).rollouts.push({
+        round: Number(d.round),
+        index: Number(d.index),
+        reward: Number(d.reward),
+        success: Boolean(d.success),
+      })
+    } else if (e.event === 'eval_summary') {
+      mt(Number(d.activity_index)).rounds.push({
+        round: Number(d.round),
+        mean_reward: Number(d.mean_reward),
+        success_rate: Number(d.success_rate),
+      })
+    } else if (e.event === 'curate') {
+      mt(Number(d.activity_index)).curate.push({
+        round: Number(d.round),
+        threshold: Number(d.threshold),
+        selected: Number(d.selected),
+        available: Number(d.available),
+        mean_selected_reward: Number(d.mean_selected_reward),
+      })
+    } else if (e.event === 'train_stage') {
+      mt(Number(d.activity_index)).stages.push({
+        round: Number(d.round ?? 0),
+        stage: String(d.stage),
+        status: String(d.status),
+      })
+    } else if (e.event === 'train_modal_done') {
+      mt(Number(d.activity_index)).status = 'done'
+    } else if (e.event === 'train_modal_error') {
+      const m = mt(Number(d.activity_index))
+      m.status = 'error'
+      m.message = d.message != null ? String(d.message) : 'training failed'
     }
   }
 
   const results = [...byIndex.values()].sort(
     (a, b) => a.activity_index - b.activity_index,
   )
-  return { results, trainRounds }
+  return { results, trainRounds, modalTraining }
 }
 
 export default App

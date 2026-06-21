@@ -6,7 +6,9 @@ export type StageStatus = 'started' | 'completed' | 'failed'
 export interface TimelineEvent {
   // The SSE `event:` name. One of:
   //   stage | awaiting_confirmation | gizmo | rollout | train_round |
-  //   train_further_done | train_further_error | error | done
+  //   train_further_done | train_further_error | error | done |
+  //   train_stage | eval_rollout | eval_summary | curate |
+  //   train_modal_done | train_modal_error
   event: string
   data: Record<string, unknown>
   ts: number
@@ -62,6 +64,23 @@ export async function trainFurther(
   }
 }
 
+// Kick off the real pi0.5 BC loop (eval -> curate -> finetune) with live reward
+// streaming. dryRun=true (default) streams recorded/synthetic reward so the chart
+// animates with no GPU spend; dryRun=false drives Modal A100s.
+export async function trainModal(
+  runId: string,
+  activityIndex: number,
+  dryRun = true,
+): Promise<void> {
+  const resp = await fetch(
+    `/api/runs/${runId}/train-modal?activity_index=${activityIndex}&dry_run=${dryRun}`,
+    { method: 'POST' },
+  )
+  if (!resp.ok) {
+    throw new Error(`trainModal failed (${resp.status}): ${await resp.text()}`)
+  }
+}
+
 // Opens the SSE stream for a run. Returns the EventSource so the caller can close
 // it. `onEvent` fires for every named event the backend emits.
 export function openEventStream(
@@ -77,6 +96,12 @@ export function openEventStream(
     'train_round',
     'train_further_done',
     'train_further_error',
+    'train_stage',
+    'eval_rollout',
+    'eval_summary',
+    'curate',
+    'train_modal_done',
+    'train_modal_error',
     'error',
     'done',
   ]
