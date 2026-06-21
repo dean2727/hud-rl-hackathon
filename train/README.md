@@ -70,6 +70,66 @@ modal volume put hudathon-policy-checkpoints datasets/lerobot-round-000 datasets
 modal run train/modal_app.py::fine_tune --dataset-repo-id hudathon/vla-pick --dataset-root datasets/round-000
 ```
 
+## Running on a custom Gizmo scene (e.g. env1)
+
+The loop isn't tied to `franka-libero-v1`. To run on another Franka scene, pass
+`--scene <id> --target <body> --instruction "..." --lift <z>` (loop.py) or `--scene`
+(run_vla.py). A Gizmo-exported Franka scene needs three one-time adaptations first —
+`scenes/env1` already has them applied:
+
+1. **Cameras + TCP site** in the scene's `franka_emika_panda/panda.xml`: add a
+   `<site name="eef" pos="0 0 0.1034" .../>` and `<camera name="wrist" .../>` inside
+   the `hand` body, and a `<camera name="agentview" mode="targetbody" target="hand" .../>`
+   in `<worldbody>` (mirror `scenes/franka-libero-v1/franka_emika_panda/panda.xml`).
+   The bridge renders `agentview`+`wrist`; `control.py` needs the `eef` site.
+2. **No metadata change needed** — `vla_env` loads the embodiment contract from
+   `contracts/franka_libero.json` for every scene (same Franka).
+3. **Collision-mask overflow** is handled automatically by the `sim/server.py` clamp
+   shim (Newton's MuJoCo export overflows `contype` to 2**31 on scenes with many
+   collision groups, like env1).
+
+Smoke-test the plumbing with no GPU (resets scene, renders cameras, grades):
+
+```bash
+uv run --extra robot python run_vla.py --noop --scene env1 \
+  --target-object modern_silver_laptop_11_rigid_body \
+  --instruction "pick up the silver laptop" --lift-height 0.98 --group 2 --max-steps 20
+```
+
+Then the real policy / loop:
+
+```bash
+HUDATHON_SCENE=env1 HUDATHON_TARGET_OBJECT=modern_silver_laptop_11_rigid_body \
+HUDATHON_INSTRUCTION="pick up the silver laptop" HUDATHON_LIFT_HEIGHT=0.98 \
+  python -m train.loop --round 0 \
+  --scene env1 --target modern_silver_laptop_11_rigid_body \
+  --instruction "pick up the silver laptop" --lift 0.98
+```
+
+> **Reachability caveat (env1):** the Gizmo office scene parks the Franka base at
+> ~(0.08, -0.14) but `laptop_11` sits at ~(0, 1.0) — ~1.1 m away, beyond a Panda's
+> ~0.85 m reach. The policy will *attempt* the pick (and shaped `lift_progress` gives
+> partial credit), but full success needs the arm or target repositioned. Move the
+> Franka `spawn_Robot_Spawn` site or the laptop's spawn pose in `scenes/env1/scene.xml`
+> to put the target within reach before expecting successful picks to curate.
+
+## Watch it in MuJoCo
+
+The sim runs locally on CPU, so the live viewer pops on your machine while inference
+runs (locally or on a remote A100). Needs `uv sync --extra viewer` + a display.
+
+```bash
+# watch a single real-policy rollout on env1:
+modal run train/modal_app.py::serve_policy --checkpoint lerobot/pi05_libero_finetuned_v044   # terminal 1
+HUDATHON_VIEWER=1 uv run --extra robot --extra viewer python run_vla.py \
+  --remote HOST:PORT --scene env1 --target-object modern_silver_laptop_11_rigid_body \
+  --instruction "pick up the silver laptop" --lift-height 0.98 --group 1               # terminal 2
+```
+
+`HUDATHON_VIEWER=1` is read by `sim/host.py`, which runs the viewer on the sim
+process's main thread. It also works wrapping `python -m train.loop` (viewer shows the
+eval phase; `max_concurrent=1` keeps it to one window at a time).
+
 ## Files
 
 | File | Role |
