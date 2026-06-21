@@ -17,6 +17,10 @@ dependencies = [
     "scipy>=1.11.0", # mesh processing during scene import
     "trimesh>=4.6.8", # mesh loading during scene import
     "modal>=1.5.0",
+    "fastapi>=0.115.0", # backend/: REST + SSE API for the photo-to-scene-to-RL flow
+    "uvicorn[standard]>=0.30.0", # ASGI server for the backend
+    "httpx>=0.27.0", # Gizmo REST/SSE client + Ollama vision client
+    "python-multipart>=0.0.9", # multipart photo uploads (backend/routes.py)
 ]
 
 [project.optional-dependencies]
