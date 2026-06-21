@@ -1,0 +1,272 @@
+.app {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 32px 24px 80px;
+}
+
+.app-header h1 {
+  margin: 0 0 4px;
+  font-size: 28px;
+}
+
+.app-header p {
+  margin: 0 0 28px;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 880px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.panel h2 {
+  margin: 0 0 14px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.section-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent-2);
+  color: white;
+  font-size: 13px;
+  margin-right: 8px;
+}
+
+/* ── Photo upload ── */
+.photo-grid {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.photo-thumb {
+  position: relative;
+  width: 110px;
+  height: 90px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+}
+
+.photo-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.photo-thumb button {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  padding: 0;
+  width: 22px;
+  height: 22px;
+  line-height: 1;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.dropzone {
+  border: 1.5px dashed var(--border);
+  border-radius: 8px;
+  padding: 22px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 6px;
+}
+
+/* ── Activities ── */
+.activity-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.activity-row button {
+  flex-shrink: 0;
+}
+
+/* ── Start ── */
+.start-bar {
+  margin-top: 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.error-banner {
+  background: rgba(240, 97, 109, 0.12);
+  border: 1px solid var(--red);
+  color: #ffd2d6;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 14px;
+  margin-top: 14px;
+}
+
+/* ── Timeline ── */
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 460px;
+  overflow-y: auto;
+}
+
+.tl-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.tl-dot {
+  flex-shrink: 0;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-top: 6px;
+  background: var(--muted);
+}
+
+.tl-dot.started {
+  background: var(--amber);
+}
+.tl-dot.completed {
+  background: var(--green);
+}
+.tl-dot.failed,
+.tl-dot.error {
+  background: var(--red);
+}
+.tl-dot.gizmo {
+  background: var(--accent);
+}
+
+.tl-body .tl-title {
+  font-weight: 500;
+}
+
+.tl-body .tl-detail {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* ── Results ── */
+.result-card {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.result-card .rc-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.result-card .rc-activity {
+  font-weight: 600;
+}
+
+.badge {
+  font-size: 12px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.badge.success {
+  background: rgba(67, 196, 120, 0.15);
+  border-color: var(--green);
+  color: #9be8bd;
+}
+.badge.fail {
+  background: rgba(240, 97, 109, 0.12);
+  border-color: var(--red);
+  color: #ffd2d6;
+}
+.badge.running {
+  background: rgba(240, 181, 69, 0.12);
+  border-color: var(--amber);
+  color: #ffe2a8;
+}
+
+.rc-meta {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 8px 0;
+}
+
+.reward-bar {
+  height: 7px;
+  border-radius: 4px;
+  background: var(--border);
+  overflow: hidden;
+  margin: 8px 0;
+}
+
+.reward-bar > div {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-2), var(--green));
+}
+
+.rc-content {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 6px 0 10px;
+}
+
+.train-rounds {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.train-rounds .tr-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 0;
+}
+
+.empty {
+  color: var(--muted);
+  font-size: 14px;
+  text-align: center;
+  padding: 30px 0;
+}
