@@ -1,12 +1,4 @@
-<h1 align="center">
-  <img src="antim.png" alt="Antim Labs" height="30"> &nbsp;&nbsp;×&nbsp;&nbsp; <img src="hud_logo.svg" alt="HUD" height="28"> &nbsp;&nbsp;|&nbsp;&nbsp; Room2Robot
-</h1>
-
-<p align="center">
-  <img src="demo.gif" alt="Room2Robot demo" width="840">
-</p>
-
-<p align="center"><sub><a href="demo.mp4">Full demo (MP4)</a></sub></p>
+# Room2Robot
 
 <p align="center">
   Upload photos of a real space → Gizmo builds a 3D scene → HUD grades rollouts →
