@@ -44,6 +44,33 @@ import control as ctl
 
 import mujoco
 
+# Compat shim for complex Gizmo scenes: Newton's MuJoCo solver export assigns one
+# collision bit per group, and a scene with >=31 groups (e.g. scenes/env1) sets bit
+# 31, producing contype/conaffinity = 2**31. MuJoCo's add_geom takes a *signed*
+# int32, so that overflows and raises TypeError, making the scene unloadable. Clamp
+# the masks to 31 bits before add_geom — small masks (normal scenes) are untouched;
+# only an otherwise-fatal overflow loses its (meaningless) high bit.
+def _install_geom_mask_clamp() -> None:
+    try:
+        _orig_add_geom = mujoco._specs.MjsBody.add_geom
+    except AttributeError:
+        return
+    if getattr(_orig_add_geom, "_hudathon_clamped", False):
+        return
+
+    def add_geom(self, *args, **kwargs):  # noqa: ANN001
+        for key in ("contype", "conaffinity"):
+            v = kwargs.get(key)
+            if v is not None:
+                kwargs[key] = int(v) & 0x7FFFFFFF
+        return _orig_add_geom(self, *args, **kwargs)
+
+    add_geom._hudathon_clamped = True  # type: ignore[attr-defined]
+    mujoco._specs.MjsBody.add_geom = add_geom
+
+
+_install_geom_mask_clamp()
+
 # Warp prints a banner to stdout on init; redirect to stderr while importing and
 # initializing it (safe here - runs at module import, before any threads start).
 _orig_stdout = sys.stdout

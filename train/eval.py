@@ -59,6 +59,7 @@ async def run_eval_batch(
     )
     tasks = [
         vla_pick(
+            scene_id=cfg.scene_id,
             instruction=spec.instruction,
             target_object=spec.target_object or cfg.target_object,
             lift_height=float(spec.params.get("lift_height", cfg.lift_height)),

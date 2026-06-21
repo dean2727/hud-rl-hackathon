@@ -33,7 +33,10 @@ image = (
         "hud-python[robot]",
         _LEROBOT,
         "torch",
-        "transformers",
+        # Pin to lerobot's own `transformers-dep` range. Unpinned, pip backtracks
+        # (lerobot pins huggingface-hub>=1.0, which only transformers 5.x supports)
+        # down to ancient transformers that need a source build of sentencepiece -> fails.
+        "transformers>=5.4.0,<5.6.0",
         "accelerate",
         "safetensors",
         "huggingface_hub",

@@ -26,6 +26,7 @@ class TrainConfig:
     curation_threshold: float = float(os.environ.get("HUDATHON_CURATION_THRESHOLD", "0.25"))
     success_threshold: float = float(os.environ.get("HUDATHON_SUCCESS_THRESHOLD", "0.999"))
     rounds: int = int(os.environ.get("HUDATHON_ROUNDS", "2"))
+    scene_id: str = os.environ.get("HUDATHON_SCENE", "franka-libero-v1")
     instruction: str = os.environ.get("HUDATHON_INSTRUCTION", "pick up the red block")
     target_object: str = os.environ.get("HUDATHON_TARGET_OBJECT", "block")
     lift_height: float = float(os.environ.get("HUDATHON_LIFT_HEIGHT", "0.55"))

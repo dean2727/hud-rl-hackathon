@@ -184,11 +184,11 @@ async def run_eval(args: argparse.Namespace) -> None:
         policy = args.checkpoint
 
     tasks = [
-        vla_pick(instruction=args.instruction, target_object=args.target_object,
+        vla_pick(scene_id=args.scene, instruction=args.instruction, target_object=args.target_object,
                  lift_height=args.lift_height, seed=i, max_steps=args.max_steps)
         for i in range(args.group)
     ]
-    print(f"VLA eval: {args.group} rollout(s) of {args.instruction!r} (policy: {policy})\n")
+    print(f"VLA eval: {args.group} rollout(s) of {args.instruction!r} on {args.scene!r} (policy: {policy})\n")
 
     job = await Taskset("hudathon-vla", tasks).run(
         agent, runtime=LocalRuntime(str(ROOT / "environment" / "vla_env.py")),
@@ -220,6 +220,7 @@ def main() -> None:
     ap.add_argument("--max-steps", type=int, default=200, metavar="N", help="max control steps per rollout")
     ap.add_argument("--max-concurrent", type=int, default=1, metavar="N", help="parallel rollouts (one sim per env process)")
     ap.add_argument("--record", default=None, metavar="DIR", help="record (obs, action) episodes to DIR (env-side dataset)")
+    ap.add_argument("--scene", default="franka-libero-v1", help="scene_id to run on (e.g. env1)")
     ap.add_argument("--instruction", default="pick up the red block", help="language instruction handed to the policy")
     ap.add_argument("--target-object", default="block", help="scene body the task scores on lifting")
     ap.add_argument("--lift-height", type=float, default=0.55, metavar="Z", help="height (m) the object must reach for success")

@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import dataclasses
 import json
 import sys
 from pathlib import Path
@@ -118,7 +119,7 @@ def run_round(
     if dry_run:
         result["plan"] = [
             f"serve  : Modal serve_policy(checkpoint={checkpoint!r}) -> tunnel address",
-            f"eval   : run_eval_batch(remote=..., record_dir={raw_dir}, group={cfg.group})",
+            f"eval   : run_eval_batch(scene={cfg.scene_id!r}, target={cfg.target_object!r}, remote=..., record_dir={raw_dir}, group={cfg.group})",
             f"curate : curate_episodes(threshold={cfg.curation_threshold}) -> {curated_dir}",
             f"convert: convert_episodes(repo_id={repo_id!r}) -> {ds_dir}",
             f"upload : checkpoint Volume <- {ds_dir}  at  {vol_subdir}",
@@ -172,10 +173,23 @@ def main() -> None:
     ap.add_argument("--repo-id", default="hudathon/vla-pick", help="LeRobot dataset repo id for the built dataset")
     ap.add_argument("--steps", type=int, default=1000, help="lerobot-train steps")
     ap.add_argument("--batch-size", type=int, default=4)
+    # Scene/task overrides (defaults come from TrainConfig / HUDATHON_* env vars).
+    ap.add_argument("--scene", default=None, help="scene_id to run on (e.g. env1)")
+    ap.add_argument("--target", default=None, help="target object body name to pick")
+    ap.add_argument("--instruction", default=None, help="language instruction for the policy")
+    ap.add_argument("--lift", type=float, default=None, help="success lift height (m)")
     ap.add_argument("--episodes-dir", type=Path, default=None,
                     help="(dry-run) existing episode_* dir to test curate/convert against")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
+    overrides = {k: v for k, v in {
+        "scene_id": args.scene,
+        "target_object": args.target,
+        "instruction": args.instruction,
+        "lift_height": args.lift,
+    }.items() if v is not None}
+    if overrides:
+        cfg = dataclasses.replace(cfg, **overrides)
     summary = run_round(
         round_idx=args.round,
         checkpoint=args.checkpoint,
