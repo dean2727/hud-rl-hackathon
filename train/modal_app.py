@@ -3,6 +3,8 @@
 Examples:
     modal run train/modal_app.py::serve_policy
     modal run train/modal_app.py::fine_tune --dataset-repo-id HF_USER/my_dataset
+
+NOTE: Must run "uv run modal secret create huggingface HF_TOKEN=<TOKEN>" first
 """
 
 from __future__ import annotations
@@ -84,6 +86,15 @@ def serve_policy(
     policy_family: str = CFG.policy_family,
     addr_queue_name: str = SERVE_ADDR_QUEUE,
 ) -> None:
+    import os
+
+    # pi0.5 lazily torch.compiles its action expert; on the first inference TorchInductor
+    # autotunes hundreds of matmuls (~5-8s each + shared-mem OOM retries) -> a 10-20 min
+    # cold start before a single action comes back. For eval/serving we don't need compiled
+    # kernels: disable dynamo so the first inference runs eager in seconds (steady-state eager
+    # on an A100 is fine for rollouts). Must be set before torch is imported below.
+    os.environ.setdefault("TORCHDYNAMO_DISABLE", "1")
+
     import asyncio
     import sys
 
