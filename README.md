@@ -1,10 +1,12 @@
 <h1 align="center">
-  <img src="antim.png" alt="Antim Labs" height="30"> &nbsp;&nbsp;×&nbsp;&nbsp; <img src="hud_logo.svg" alt="HUD" height="28"> &nbsp;&nbsp;|&nbsp;&nbsp; Hudathon
+  <img src="antim.png" alt="Antim Labs" height="30"> &nbsp;&nbsp;×&nbsp;&nbsp; <img src="hud_logo.svg" alt="HUD" height="28"> &nbsp;&nbsp;|&nbsp;&nbsp; Room2Robot
 </h1>
 
-<p align="center">
-  <video src="demo.mp4" controls width="100%" style="max-width: 840px"></video>
-</p>
+<div align="center">
+
+[▶ Watch the demo](demo.mp4)
+
+</div>
 
 <p align="center">
   Upload photos of a real space → Gizmo builds a 3D scene → HUD grades rollouts →
