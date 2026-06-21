@@ -2,11 +2,11 @@
   <img src="antim.png" alt="Antim Labs" height="30"> &nbsp;&nbsp;×&nbsp;&nbsp; <img src="hud_logo.svg" alt="HUD" height="28"> &nbsp;&nbsp;|&nbsp;&nbsp; Room2Robot
 </h1>
 
-<div align="center">
+<p align="center">
+  <img src="demo.gif" alt="Room2Robot demo" width="840">
+</p>
 
-[▶ Watch the demo](demo.mp4)
-
-</div>
+<p align="center"><sub><a href="demo.mp4">Full demo (MP4)</a></sub></p>
 
 <p align="center">
   Upload photos of a real space → Gizmo builds a 3D scene → HUD grades rollouts →
@@ -99,7 +99,8 @@ Bring your own VLA: scaffold in `agents/vla_agent.py`, then
 
 ```
 hudathon/
-├── demo.mp4       end-to-end walkthrough (embedded above)
+├── demo.gif       animated preview (embedded above)
+├── demo.mp4       full walkthrough
 ├── frontend/      React/Vite app: upload, timeline, fine-tune chart, rollout video
 ├── backend/       FastAPI: vision → Gizmo → compose → rollouts → Modal train (SSE)
 ├── train/         Modal eval → curate → convert → fine_tune loop (see train/README.md)

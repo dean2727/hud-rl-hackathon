@@ -12,6 +12,7 @@ datasets/
 results/
 telemetry-dump/
 *.gif
+!demo.gif
 .DS_Store
 
 scenes/*
