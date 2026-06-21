@@ -20,6 +20,9 @@ CFG = TrainConfig()
 APP_ROOT = "/root/hudathon"
 HF_CACHE = "/cache"
 CHECKPOINTS = "/checkpoints"
+# Named queue the serving function uses to hand its public tunnel address back to a
+# local orchestrator (train/loop.py); harmless for a plain `modal run ::serve_policy`.
+SERVE_ADDR_QUEUE = "hudathon-serve-addr"
 
 _LEROBOT = "lerobot @ git+https://github.com/huggingface/lerobot.git@b8ad81bf397d59dda69ccfc7e74e847f0a9d4fbf"
 
@@ -55,7 +58,11 @@ checkpoint_vol = modal.Volume.from_name(CFG.modal_volume_name, create_if_missing
     timeout=24 * 3600,
     volumes={HF_CACHE: cache_vol, CHECKPOINTS: checkpoint_vol},
 )
-def serve_policy(checkpoint: str = CFG.base_checkpoint, policy_family: str = CFG.policy_family) -> None:
+def serve_policy(
+    checkpoint: str = CFG.base_checkpoint,
+    policy_family: str = CFG.policy_family,
+    addr_queue_name: str = SERVE_ADDR_QUEUE,
+) -> None:
     import asyncio
     import sys
 
@@ -67,6 +74,11 @@ def serve_policy(checkpoint: str = CFG.base_checkpoint, policy_family: str = CFG
     with modal.forward(8000, unencrypted=True) as tunnel:
         host, port = tunnel.tcp_socket
         print(f"[serve] policy ready - use --remote {host}:{port}", flush=True)
+        # Hand the address to a local orchestrator (train/loop.py) if one is waiting.
+        try:
+            modal.Queue.from_name(addr_queue_name, create_if_missing=True).put(f"{host}:{port}")
+        except Exception as exc:  # never let address-publishing kill the server
+            print(f"[serve] address publish skipped: {exc}", flush=True)
         asyncio.run(serve_openpi(
             "0.0.0.0",
             8000,
@@ -83,6 +95,7 @@ def serve_policy(checkpoint: str = CFG.base_checkpoint, policy_family: str = CFG
 )
 def fine_tune(
     dataset_repo_id: str,
+    dataset_root: str | None = None,
     output_name: str = "round-000",
     policy_path: str = CFG.base_checkpoint,
     steps: int = 1000,
@@ -94,8 +107,19 @@ def fine_tune(
     sys.path.insert(0, APP_ROOT)
     from train.finetune import FinetuneRequest, run_lerobot_train
 
+    # A volume-relative dataset dir (e.g. "datasets/round-000") resolves under the
+    # mounted checkpoint Volume so lerobot-train reads the locally-built dataset.
+    root = None
+    if dataset_root:
+        root = Path(dataset_root)
+        if not root.is_absolute():
+            root = Path(CHECKPOINTS) / dataset_root
+    if policy_path.startswith("volume:"):
+        policy_path = str(Path(CHECKPOINTS) / policy_path.removeprefix("volume:").lstrip("/"))
+
     req = FinetuneRequest(
         dataset_repo_id=dataset_repo_id,
+        dataset_root=root,
         output_dir=Path(CHECKPOINTS) / output_name,
         policy_path=policy_path,
         steps=steps,
@@ -108,12 +132,19 @@ def fine_tune(
 
 
 @app.local_entrypoint()
-def main(action: str = "serve", dataset_repo_id: str | None = None, dry_run: bool = False) -> None:
+def main(
+    action: str = "serve",
+    dataset_repo_id: str | None = None,
+    dataset_root: str | None = None,
+    dry_run: bool = False,
+) -> None:
     if action == "serve":
         serve_policy.remote()
     elif action == "finetune":
         if not dataset_repo_id:
             raise ValueError("--dataset-repo-id is required when action=finetune")
-        print(fine_tune.remote(dataset_repo_id=dataset_repo_id, dry_run=dry_run))
+        print(fine_tune.remote(
+            dataset_repo_id=dataset_repo_id, dataset_root=dataset_root, dry_run=dry_run,
+        ))
     else:
         raise ValueError(f"unknown action: {action}")
