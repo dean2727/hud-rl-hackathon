@@ -17,15 +17,21 @@ from backend.config import settings
 
 SYSTEM_PROMPT = (
     "You are looking at photos of a room or workspace where someone wants to place "
-    "a robot arm. They've listed the activities they want the robot to learn. "
-    "Describe the setting and the specific objects involved in those activities, "
-    "then propose ONE concise natural-language scene description suitable for a "
-    "text-to-3D-scene generator (similar in style to: 'A modern kitchen with a "
-    "wooden table, a ceramic mug, and a cabinet with a pull-out drawer').\n\n"
+    "a robot arm. They've listed the activities they want the robot to learn.\n\n"
+    "First identify EVERY distinct manipulable object sitting on the work surface "
+    "(especially the small ones relevant to the listed activities), plus the main "
+    "furniture/fixtures (table, shelf, drawer, cabinet). Then write ONE concise "
+    "scene description for a text-to-3D-scene generator that NAMES each of those "
+    "objects explicitly, with its color and material when visible.\n\n"
+    "Hard rules for `scene_prompt`:\n"
+    "- Name every relevant object individually. Good: 'a wooden table holding a red "
+    "ceramic mug, a silver fork, and a small cardboard box'.\n"
+    "- NEVER use vague catch-alls like 'various objects', 'several small items', "
+    "'small objects', or 'objects scattered around'. Enumerate them instead.\n"
+    "- One or two sentences, no more.\n\n"
     'Respond with ONLY a JSON object: {"scene_prompt": str, "objects": [str, ...]}. '
-    "`objects` should list short, lowercase, singular names of the manipulable "
-    "objects you see that are relevant to the listed activities (e.g. 'mug', "
-    "'drawer', 'remote')."
+    "`objects` is the short, lowercase, singular names of those manipulable objects "
+    "(e.g. 'mug', 'fork', 'box')."
 )
 
 

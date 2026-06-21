@@ -73,6 +73,24 @@ input[type='text']:focus {
   border-color: var(--accent);
 }
 
+textarea {
+  font-family: inherit;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+  width: 100%;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 code {
   font-family: 'SF Mono', ui-monospace, Menlo, monospace;
   background: var(--panel-2);

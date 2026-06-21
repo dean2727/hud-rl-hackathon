@@ -5,8 +5,8 @@ export type StageStatus = 'started' | 'completed' | 'failed'
 
 export interface TimelineEvent {
   // The SSE `event:` name. One of:
-  //   stage | gizmo | rollout | train_round | train_further_done |
-  //   train_further_error | error | done
+  //   stage | awaiting_confirmation | gizmo | rollout | train_round |
+  //   train_further_done | train_further_error | error | done
   event: string
   data: Record<string, unknown>
   ts: number
@@ -32,6 +32,23 @@ export async function createRun(
   return resp.json()
 }
 
+// Confirm (and optionally edit) the vision model's scene description, which
+// resumes the pipeline into Gizmo scene generation. The run must be in its
+// awaiting_confirmation stage.
+export async function confirmScene(
+  runId: string,
+  scenePrompt: string,
+): Promise<void> {
+  const resp = await fetch(`/api/runs/${runId}/confirm-scene`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scene_prompt: scenePrompt }),
+  })
+  if (!resp.ok) {
+    throw new Error(`confirmScene failed (${resp.status}): ${await resp.text()}`)
+  }
+}
+
 export async function trainFurther(
   runId: string,
   activityIndex: number,
@@ -54,6 +71,7 @@ export function openEventStream(
   const es = new EventSource(`/api/runs/${runId}/events`)
   const NAMED = [
     'stage',
+    'awaiting_confirmation',
     'gizmo',
     'rollout',
     'train_round',

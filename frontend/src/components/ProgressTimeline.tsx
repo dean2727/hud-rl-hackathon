@@ -35,6 +35,12 @@ function renderEvent(e: TimelineEvent): Rendered | null {
       }
       return { dotClass: status, title: `${label} — ${status}`, detail }
     }
+    case 'awaiting_confirmation':
+      return {
+        dotClass: 'started',
+        title: 'Waiting for your review of the scene description',
+        detail: d.scene_prompt ? `"${d.scene_prompt}"` : undefined,
+      }
     case 'gizmo': {
       const type = String(d.type)
       const raw =

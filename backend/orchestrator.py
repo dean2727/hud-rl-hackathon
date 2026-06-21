@@ -1,7 +1,12 @@
-"""Background pipeline: photos -> vision -> Gizmo scene -> compose -> map -> rollout.
+"""Background pipeline: photos -> vision -> [user review] -> Gizmo scene -> compose -> map -> rollout.
 
-One `run_pipeline(run)` task per submitted run (kicked off by routes.py), pushing
-SSE events onto the run's event bus (runs.py) as each stage progresses.
+Split into two background tasks around a human-in-the-loop checkpoint:
+  - run_describe(run): runs the vision stage, then emits "awaiting_confirmation"
+    and STOPS so the user can review/edit the scene description.
+  - run_generate_onward(run): kicked off by POST /confirm-scene with the (possibly
+    edited) prompt; runs Gizmo generation -> compose -> map -> rollout.
+Both push SSE events onto the run's event bus (runs.py). "awaiting_confirmation"
+is non-terminal so the already-open SSE stream survives the pause.
 """
 
 from __future__ import annotations
@@ -18,9 +23,27 @@ from backend.task_mapping import classify_all
 from backend.vision import VisionError, describe_images
 
 
-async def run_pipeline(run: RunState) -> None:
+async def run_describe(run: RunState) -> None:
+    """Phase 1: describe the photos, then pause for user review of the prompt."""
     try:
         await _stage_describe(run)
+        run.stage = "awaiting_confirmation"
+        await emit(run, "awaiting_confirmation", {
+            "scene_prompt": run.scene_prompt,
+            "objects": run.object_hints,
+        })
+    except VisionError as exc:
+        run.status, run.error = "failed", str(exc)
+        await emit(run, "error", {"message": str(exc), "stage": run.stage})
+    except Exception as exc:  # don't let an unexpected bug hang the SSE stream forever
+        run.status, run.error = "failed", f"unexpected error: {exc}"
+        await emit(run, "error", {"message": run.error, "stage": run.stage})
+
+
+async def run_generate_onward(run: RunState) -> None:
+    """Phase 2: from the confirmed prompt through Gizmo, compose, map, and rollouts."""
+    run.status = "running"
+    try:
         await _stage_generate_scene(run)
         await _stage_compose(run)
         await _stage_map_activities(run)

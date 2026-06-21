@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import {
+  confirmScene,
   createRun,
   openEventStream,
   trainFurther,
@@ -8,6 +9,7 @@ import {
 } from './api'
 import { PhotoUpload } from './components/PhotoUpload'
 import { ActivityList } from './components/ActivityList'
+import { SceneReview } from './components/SceneReview'
 import { ProgressTimeline } from './components/ProgressTimeline'
 import {
   ResultsPanel,
@@ -15,7 +17,8 @@ import {
   type TrainRound,
 } from './components/ResultsPanel'
 
-type Phase = 'idle' | 'running' | 'done' | 'failed'
+// 'awaiting' = paused at the scene-description review checkpoint.
+type Phase = 'idle' | 'running' | 'awaiting' | 'done' | 'failed'
 
 function App() {
   const [photos, setPhotos] = useState<File[]>([])
@@ -24,14 +27,17 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [events, setEvents] = useState<TimelineEvent[]>([])
   const [runId, setRunId] = useState<string | null>(null)
+  const [sceneDraft, setSceneDraft] = useState('')
+  const [detectedObjects, setDetectedObjects] = useState<string[]>([])
   const [trainingIndices, setTrainingIndices] = useState<Set<number>>(new Set())
   const esRef = useRef<EventSource | null>(null)
 
   useEffect(() => () => esRef.current?.close(), [])
 
   const cleanActivities = activities.map((a) => a.trim()).filter(Boolean)
+  const busy = phase === 'running' || phase === 'awaiting'
   const canStart =
-    phase !== 'running' &&
+    !busy &&
     photos.length >= 1 &&
     photos.length <= 3 &&
     cleanActivities.length > 0
@@ -39,6 +45,8 @@ function App() {
   async function handleStart() {
     setError(null)
     setEvents([])
+    setSceneDraft('')
+    setDetectedObjects([])
     setTrainingIndices(new Set())
     setPhase('running')
     setRunId(null)
@@ -47,6 +55,13 @@ function App() {
       setRunId(run_id)
       esRef.current = openEventStream(run_id, (e) => {
         setEvents((prev) => [...prev, e])
+        if (e.event === 'awaiting_confirmation') {
+          setSceneDraft(String(e.data.scene_prompt ?? ''))
+          setDetectedObjects(
+            Array.isArray(e.data.objects) ? (e.data.objects as string[]) : [],
+          )
+          setPhase('awaiting')
+        }
         if (e.event === 'done') setPhase('done')
         if (e.event === 'error') {
           setPhase('failed')
@@ -61,6 +76,17 @@ function App() {
           })
         }
       })
+    } catch (err) {
+      setPhase('failed')
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function handleConfirmScene() {
+    if (!runId) return
+    setPhase('running')
+    try {
+      await confirmScene(runId, sceneDraft)
     } catch (err) {
       setPhase('failed')
       setError(err instanceof Error ? err.message : String(err))
@@ -87,7 +113,7 @@ function App() {
     [events],
   )
 
-  const locked = phase === 'running'
+  const locked = busy
 
   return (
     <div className="app">
@@ -114,9 +140,13 @@ function App() {
               disabled={!canStart}
               onClick={handleStart}
             >
-              {phase === 'running' ? 'Learning…' : 'Start Learning'}
+              {phase === 'running'
+                ? 'Learning…'
+                : phase === 'awaiting'
+                  ? 'Awaiting review…'
+                  : 'Start Learning'}
             </button>
-            {phase !== 'running' && !canStart && (
+            {!busy && !canStart && (
               <span className="hint">Add 1-3 photos and at least one activity.</span>
             )}
           </div>
@@ -124,6 +154,18 @@ function App() {
         </div>
 
         <div>
+          {phase === 'awaiting' && (
+            <>
+              <SceneReview
+                scenePrompt={sceneDraft}
+                objects={detectedObjects}
+                onChange={setSceneDraft}
+                onConfirm={handleConfirmScene}
+                submitting={false}
+              />
+              <div style={{ height: 24 }} />
+            </>
+          )}
           <ProgressTimeline events={events} />
           <ResultsPanel
             results={results}

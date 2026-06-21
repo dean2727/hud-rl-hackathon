@@ -10,9 +10,15 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
 from backend.config import settings
-from backend.orchestrator import run_pipeline, run_train_further
+from backend.orchestrator import run_describe, run_generate_onward, run_train_further
 from backend.runs import store, subscribe, unsubscribe
-from backend.schemas import RunCreatedResponse, RunStateResponse, TrainFurtherAccepted
+from backend.schemas import (
+    ConfirmSceneRequest,
+    RunCreatedResponse,
+    RunStateResponse,
+    SceneConfirmAccepted,
+    TrainFurtherAccepted,
+)
 
 router = APIRouter(prefix="/api")
 
@@ -40,8 +46,23 @@ async def create_run(
         image_paths.append(dest)
     run.image_paths = image_paths
 
-    asyncio.create_task(run_pipeline(run))
+    asyncio.create_task(run_describe(run))
     return RunCreatedResponse(run_id=run.run_id)
+
+
+@router.post("/runs/{run_id}/confirm-scene", response_model=SceneConfirmAccepted)
+async def confirm_scene(run_id: str, body: ConfirmSceneRequest) -> SceneConfirmAccepted:
+    run = store.get(run_id)
+    if run is None:
+        raise HTTPException(404, "run not found")
+    if run.stage != "awaiting_confirmation":
+        raise HTTPException(409, f"run is not awaiting scene confirmation (stage={run.stage})")
+    prompt = body.scene_prompt.strip()
+    if not prompt:
+        raise HTTPException(400, "scene_prompt cannot be empty")
+    run.scene_prompt = prompt
+    asyncio.create_task(run_generate_onward(run))
+    return SceneConfirmAccepted()
 
 
 @router.get("/runs/{run_id}", response_model=RunStateResponse)
