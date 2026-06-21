@@ -14,6 +14,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from backend.config import settings
+from backend.demo import MOCK_GIZMO_EVENT_TYPES, demo_scene_zip
 from backend.gizmo_client import GIZMO_TERMINAL_FAIL, GIZMO_TERMINAL_OK, GizmoClient, GizmoError
 from backend.improve import train_further
 from backend.rollout import run_rollout
@@ -105,11 +107,28 @@ async def _stage_describe(run: RunState) -> None:
     await emit(run, "stage", {"stage": run.stage, "status": "completed", "detail": description})
 
 
+async def _mock_generate_scene(run: RunState) -> None:
+    """Demo mode: emit mock gizmo stage events (the bar animates) and use the local
+    demo scene as the export. No Gizmo POST; no GIZMO_API_KEY needed."""
+    run.scene_id = run.run_id  # compose writes scenes/{run_id} from the demo scene (env2 stays pristine)
+    for event_type in MOCK_GIZMO_EVENT_TYPES:
+        await emit(run, "gizmo", {"type": event_type, "data": {"demo": True}})
+        await asyncio.sleep(0.6)
+    await emit(run, "stage", {
+        "stage": run.stage, "status": "completed",
+        "detail": {"scene_id": run.scene_id, "demo": True, "source_scene": settings.demo_scene},
+    })
+
+
 async def _stage_generate_scene(run: RunState) -> None:
     run.stage = "generating_scene"
     await emit(run, "stage", {
         "stage": run.stage, "status": "started", "detail": {"prompt": run.scene_prompt},
     })
+
+    if settings.demo_mode:
+        await _mock_generate_scene(run)
+        return
 
     client = GizmoClient()
     job = await client.generate_scene(run.scene_prompt)
@@ -141,8 +160,12 @@ async def _stage_compose(run: RunState) -> None:
     run.stage = "composing_scene"
     await emit(run, "stage", {"stage": run.stage, "status": "started"})
 
-    client = GizmoClient()
-    zip_bytes = await client.export_scene(run.scene_id, fmt="mjcf")
+    if settings.demo_mode:
+        # Use the local demo scene (already downloaded from Gizmo) as the "export".
+        zip_bytes = await asyncio.to_thread(demo_scene_zip)
+    else:
+        client = GizmoClient()
+        zip_bytes = await client.export_scene(run.scene_id, fmt="mjcf")
     # compose_scene is sync/blocking (ElementTree + mujoco load) - keep it off the event loop.
     result = await asyncio.to_thread(compose_scene, zip_bytes, run.scene_id, run.scene_prompt)
     run.objects = result["objects"]

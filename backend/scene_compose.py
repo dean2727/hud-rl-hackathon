@@ -133,6 +133,35 @@ def _camera_names(scene_xml_path: Path) -> list[str]:
 # ── splicing ─────────────────────────────────────────────────────────────
 
 
+def _strip_missing_textures(asset_dir: Path, root: ET.Element) -> list[str]:
+    """Remove <texture file=...> assets whose files aren't on disk, plus any material
+    `texture=` refs to them, so a texture-incomplete export still loads. Returns the
+    removed texture names."""
+    asset = root.find("asset")
+    if asset is None:
+        return []
+    compiler = root.find("compiler")
+    texdir = (compiler.get("texturedir") if compiler is not None else "") or ""
+
+    removed: list[str] = []
+    for tex in list(asset.findall("texture")):
+        f = tex.get("file")
+        if not f or f.startswith("/"):
+            continue
+        if not (asset_dir / texdir / f).exists():
+            removed.append(tex.get("name") or f)
+            asset.remove(tex)
+    if removed:
+        gone = set(removed)
+        for mat in asset.findall("material"):
+            if mat.get("texture") in gone:  # old single-texture form
+                del mat.attrib["texture"]
+            for layer in list(mat.findall("layer")):  # MuJoCo 3.x <material><layer texture=..>
+                if layer.get("texture") in gone:
+                    mat.remove(layer)
+    return removed
+
+
 def _get_or_create(root: ET.Element, tag: str) -> ET.Element:
     el = root.find(tag)
     if el is None:
@@ -164,6 +193,13 @@ def compose_scene(zip_bytes: bytes, scene_id: str, description: str = "") -> dic
     rel_prefix = str(root_mjcf.parent.relative_to(dest_dir)) if root_mjcf.parent != dest_dir else ""
     if rel_prefix:
         _prefix_file_paths(root, rel_prefix)
+
+    # Partial Gizmo downloads may reference texture PNGs that weren't included; MuJoCo
+    # refuses to load a missing asset. Textures are cosmetic, so drop the missing ones
+    # (and material refs to them) - the scene loads untextured and the pipeline/physics
+    # are unaffected. Meshes are load-bearing and are NOT stripped (a missing mesh stays
+    # a hard error).
+    _strip_missing_textures(dest_dir / rel_prefix if rel_prefix else dest_dir, root)
 
     worldbody = _get_or_create(root, "worldbody")
     objects = _discover_objects(worldbody)

@@ -50,7 +50,7 @@ class Settings:
     google_base_url: str = os.environ.get(
         "GOOGLE_BASE_URL", "https://generativelanguage.googleapis.com"
     )
-    google_vision_model: str = os.environ.get("HUDATHON_VISION_MODEL", "gemini-3-5-flash")
+    google_vision_model: str = os.environ.get("HUDATHON_VISION_MODEL", "gemini-3.5-flash")
 
     ollama_host: str = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
     ollama_model: str = os.environ.get("OLLAMA_MODEL", "gemma3:12b")
@@ -63,6 +63,12 @@ class Settings:
 
     train_further_rounds: int = int(os.environ.get("HUDATHON_TRAIN_ROUNDS", "3"))
     train_further_group: int = int(os.environ.get("HUDATHON_TRAIN_GROUP", "3"))
+
+    # Demo mode: skip the Gizmo network calls (generate + export) and use a local
+    # already-downloaded scene as the "export", so everything after the POST (compose,
+    # map, rollout) is exercised offline. The progress bar still animates via mock events.
+    demo_mode: bool = os.environ.get("HUDATHON_DEMO_MODE", "").strip().lower() in ("1", "true", "yes", "on")
+    demo_scene: str = os.environ.get("HUDATHON_DEMO_SCENE", "env2")
 
 
 settings = Settings()
