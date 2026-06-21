@@ -21,6 +21,8 @@ from backend.runs import ActivityState, RunState, emit
 from backend.scene_compose import SceneComposeError, compose_scene
 from backend.task_mapping import classify_all
 from backend.vision import VisionError, describe_images
+from backend.vla_pipeline import generate_vla_scene
+from backend.vla_scene import VlaSceneError
 
 
 async def run_describe(run: RunState) -> None:
@@ -54,6 +56,38 @@ async def run_generate_onward(run: RunState) -> None:
         run.status, run.error = "failed", str(exc)
         await emit(run, "error", {"message": str(exc), "stage": run.stage})
     except Exception as exc:  # don't let an unexpected bug hang the SSE stream forever
+        run.status, run.error = "failed", f"unexpected error: {exc}"
+        await emit(run, "error", {"message": run.error, "stage": run.stage})
+
+
+async def run_vla_pipeline(run: RunState) -> None:
+    """Phase 2 (VLA branch): from the confirmed prompt, generate a Franka scene, adapt +
+    validate it for the pi0.5 loop, and emit a TaskSpec. The alternative to
+    run_generate_onward — the floating-gripper best-of-N path — selected for the VLA
+    training flow. Relays the pipeline's events onto the run's SSE bus; the final "done"
+    carries the TaskSpec (scene_id/target/instruction/lift) the train/loop.py round needs.
+    """
+    run.stage, run.status = "generating_vla_scene", "running"
+    try:
+        async def on_event(name: str, data: dict[str, Any]) -> None:
+            await emit(run, name, data)
+
+        first_activity = run.activities[0] if run.activities else None
+        spec = await generate_vla_scene(
+            scene_prompt=run.scene_prompt or "",
+            scene_id=run.run_id,  # scenes/<run_id>/ holds the adapted scene
+            objects=run.object_hints,
+            instruction=first_activity,
+            target_hint=first_activity,
+            on_event=on_event,
+        )
+        run.scene_id = spec.scene_id
+        run.stage, run.status = "done", "done"
+        await emit(run, "done", {"task_spec": spec.as_dict()})
+    except (VisionError, GizmoError, VlaSceneError) as exc:
+        run.status, run.error = "failed", str(exc)
+        await emit(run, "error", {"message": str(exc), "stage": run.stage})
+    except Exception as exc:
         run.status, run.error = "failed", f"unexpected error: {exc}"
         await emit(run, "error", {"message": run.error, "stage": run.stage})
 

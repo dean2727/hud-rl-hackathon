@@ -93,3 +93,26 @@ def _parse_description(content: str) -> dict[str, Any]:
         pass
     # Fallback: the model didn't return valid JSON - use the raw text as the prompt.
     return {"scene_prompt": content.strip()[:500], "objects": []}
+
+
+def bias_prompt_for_vla(scene_prompt: str, objects: list[str] | None = None) -> str:
+    """Steer the Gizmo prompt toward a VLA-trainable layout: one compact tabletop with
+    the graspable objects clustered within a stationary arm's reach (not a large room).
+
+    Gizmo has no placement controls, so this is the only lever we have over layout
+    pre-generation. The post-export reachability snap/check in vla_scene.py is the
+    deterministic guarantee; this just gives the generator a good starting point.
+    """
+    obj_phrase = ""
+    if objects:
+        named = ", ".join(objects[:6])
+        obj_phrase = (
+            f" Cluster the manipulable objects ({named}) together on one tabletop, "
+            "within about half a meter of each other."
+        )
+    return (
+        f"{scene_prompt.rstrip('. ')}. Arrange this as a single small tabletop "
+        "manipulation workspace for a stationary robot arm mounted at the table edge: "
+        "one table, a few graspable objects resting on its surface within the arm's "
+        f"reach, no large room or distant furniture.{obj_phrase}"
+    )

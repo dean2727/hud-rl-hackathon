@@ -1,7 +1,7 @@
 ---
 name: VLA scene-generation + adaptation pipeline
 overview: "Frontend NL description -> Gizmo scene -> auto-adapt to a VLA-ready Franka scene -> feed the pi0.5 BC loop. Generalizes the manual env1 adaptation (cameras + eef site + collision-mask fix + reachable target) into one deterministic adapt_vla_scene() step, gated by a no-GPU validation smoke test before any A100 time is spent."
-status: draft
+status: implemented (backend modules built + locally verified against env1; live Gizmo-key end-to-end + frontend/Modal-training stream still to run)
 todos:
   - id: prompt-bias
     content: "Bias Gemma's scene_prompt toward VLA-friendly layouts (a Franka Panda on a tabletop with the relevant objects within arm's reach), without ignoring the user's photos."

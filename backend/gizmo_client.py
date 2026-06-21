@@ -94,13 +94,23 @@ class GizmoClient:
                     data_lines.append(line[len("data:") :].strip())
                 # "id:" / "retry:" fields are ignored - no reconnect/resume support yet.
 
-    async def export_scene(self, scene_id: str, fmt: str = "mjcf") -> bytes:
-        """POST /v1/scenes/{scene_id}/export - returns the raw ZIP archive bytes."""
+    async def export_scene(
+        self, scene_id: str, fmt: str = "mjcf", robot_profile: str | None = None
+    ) -> bytes:
+        """POST /v1/scenes/{scene_id}/export - returns the raw ZIP archive bytes.
+
+        robot_profile (e.g. "franka_panda") asks Gizmo to embed that arm in the export.
+        The VLA path passes it so the export already contains a Franka (joint1..7 /
+        actuator1..8); the floating-gripper path leaves it None and splices its own rig.
+        """
+        body: dict[str, Any] = {"format": fmt}
+        if robot_profile:
+            body["robot_profile"] = robot_profile
         async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(
                 f"{self.base_url}/v1/scenes/{scene_id}/export",
                 headers=self._headers(),
-                json={"format": fmt},
+                json=body,
             )
         if resp.status_code != 200:
             raise GizmoError(f"export_scene failed ({resp.status_code}): {resp.text}")
