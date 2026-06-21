@@ -30,6 +30,7 @@ class ActivityState:
     reward: float | None = None
     success: bool | None = None
     content: str | None = None
+    best_checkpoint: str | None = None  # updated after each fine-tune round
 
 
 @dataclass

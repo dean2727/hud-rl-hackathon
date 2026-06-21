@@ -171,22 +171,20 @@ function App() {
             onChange={setActivities}
             disabled={locked}
           />
-          <div className="start-bar">
-            <button
-              className="primary"
-              disabled={!canStart}
-              onClick={handleStart}
-            >
-              {phase === 'running'
-                ? 'Learning…'
-                : phase === 'awaiting'
-                  ? 'Awaiting review…'
-                  : 'Start Learning'}
-            </button>
-            {!busy && !canStart && (
-              <span className="hint">Add 1-3 photos and at least one activity.</span>
-            )}
-          </div>
+          {!started && (
+            <div className="start-bar">
+              <button
+                className="primary"
+                disabled={!canStart}
+                onClick={handleStart}
+              >
+                Start Learning
+              </button>
+              {!busy && !canStart && (
+                <span className="hint">Add 1-3 photos and at least one activity.</span>
+              )}
+            </div>
+          )}
           {error && <div className="error-banner">{error}</div>}
         </div>
 
@@ -216,19 +214,24 @@ function App() {
                 </>
               )}
               <ProgressTimeline events={events} loading={busy} />
-              <ResultsPanel
-                results={results}
-                trainRounds={trainRounds}
-                modalTraining={modalTraining}
-                trainingIndices={trainingIndices}
-                modalIndices={modalIndices}
-                onTrainFurther={handleTrainFurther}
-                onTrainModal={handleTrainModal}
-              />
             </div>
           )}
         </div>
       </div>
+
+      {started && results.length > 0 && (
+        <div className="results-row">
+          <ResultsPanel
+            results={results}
+            trainRounds={trainRounds}
+            modalTraining={modalTraining}
+            trainingIndices={trainingIndices}
+            modalIndices={modalIndices}
+            onTrainFurther={handleTrainFurther}
+            onTrainModal={handleTrainModal}
+          />
+        </div>
+      )}
     </div>
   )
 }

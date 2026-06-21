@@ -1,3 +1,7 @@
+html, body {
+  overflow-x: hidden;
+}
+
 .app {
   max-width: 1180px;
   margin: 0 auto;
@@ -73,6 +77,18 @@
   align-items: start;
 }
 
+/* Results row: full width below both columns, cards in a responsive grid */
+.results-row {
+  margin-top: 24px;
+}
+.results-row .panel { margin-top: 0; }
+.results-row .results-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 14px;
+}
+.results-row .result-card { margin-bottom: 0; }
+
 /* let grid/flex children shrink so long text wraps instead of blowing out width */
 .layout > div { min-width: 0; }
 
@@ -94,7 +110,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 22px;
   /* NB: no fill-mode animation here — a held `animation: ... both` would pin the
      transform and block the exit slide. Entrance is a plain transition instead. */

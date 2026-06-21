@@ -40,11 +40,12 @@ def _clamp01(v: float) -> float:
     return max(0.0, min(1.0, v))
 
 
-def _demo_reward(round_idx: int, index: int) -> float:
-    """Deterministic upward-drifting reward with spread (no RNG, so runs replay)."""
+def _demo_reward(round_idx: int, index: int, run_idx: int = 0) -> float:
+    """Deterministic upward-drifting reward. run_idx offsets the baseline upward
+    so successive fine-tune button clicks show real improvement, not the same curve."""
     h = (round_idx * 1103515245 + index * 12345 + 7) % 1000
     jitter = (h / 1000.0 - 0.5) * 0.3
-    return _clamp01(0.18 + 0.22 * round_idx + jitter)
+    return _clamp01(0.18 + 0.18 * run_idx + 0.18 * round_idx + jitter)
 
 
 def _summary(rewards: list[float], threshold: float) -> dict[str, Any]:
@@ -131,7 +132,10 @@ async def _modal_loop(
 
     on_rollout = lambda d: progress("eval_rollout", d)  # noqa: E731
 
-    checkpoint = cfg.base_checkpoint
+    # Resume from the best checkpoint produced by a previous fine-tune run on this
+    # activity, so repeated clicks on "Fine-tune (VLA)" compound rather than restart.
+    activity = _activity(run, activity_index)
+    checkpoint = (activity.best_checkpoint if activity and activity.best_checkpoint else None) or cfg.base_checkpoint
     summaries: list[dict[str, Any]] = []
     for round_idx in range(rounds):
         summary = await asyncio.to_thread(
@@ -150,6 +154,9 @@ async def _modal_loop(
         if summary.get("stop"):
             break
         checkpoint = summary.get("new_checkpoint", checkpoint)
+    # Persist the best checkpoint so the next fine-tune run starts from here.
+    if activity and checkpoint != cfg.base_checkpoint:
+        activity.best_checkpoint = checkpoint
     return {"rounds": summaries}
 
 
@@ -157,15 +164,27 @@ async def _modal_loop(
 
 
 async def _demo_loop(run: RunState, activity_index: int, cfg: TrainConfig) -> dict[str, Any]:
+    # Count how many fine-tune runs this activity has already had so the baseline rises.
+    activity = _activity(run, activity_index)
+    run_idx = int(activity.best_checkpoint or "0") if (
+        activity and activity.best_checkpoint and activity.best_checkpoint.isdigit()
+    ) else 0
+
     recorded = _recorded_rounds(cfg)
     if recorded:
         for round_idx, rewards in enumerate(recorded):
             await _emit_round(run, activity_index, round_idx, rewards, cfg.curation_threshold)
+        new_run_idx = run_idx + 1
+        if activity:
+            activity.best_checkpoint = str(new_run_idx)
         return {"rounds": len(recorded), "source": "recorded"}
 
     for round_idx in range(_DEMO_ROUNDS):
-        rewards = [_demo_reward(round_idx, i) for i in range(_DEMO_GROUP)]
+        rewards = [_demo_reward(round_idx, i, run_idx) for i in range(_DEMO_GROUP)]
         await _emit_round(run, activity_index, round_idx, rewards, cfg.curation_threshold, delay=0.25)
+
+    if activity:
+        activity.best_checkpoint = str(run_idx + 1)
     return {"rounds": _DEMO_ROUNDS, "source": "synthetic"}
 
 

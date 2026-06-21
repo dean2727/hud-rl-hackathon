@@ -52,10 +52,11 @@ interface Props {
 
 const STAGE_ORDER = ['serve', 'eval', 'curate', 'finetune']
 
-function statusBadge(r: ActivityResult) {
+function statusBadge(r: ActivityResult, mt?: ModalTraining) {
   if (r.status === 'running')
     return <span className="badge running">running…</span>
   if (r.status === 'failed') return <span className="badge fail">failed</span>
+  if (mt?.status === 'done') return <span className="badge success">fine-tuned</span>
   if (r.success) return <span className="badge success">success</span>
   if (r.status === 'completed')
     return <span className="badge fail">incomplete</span>
@@ -154,30 +155,34 @@ export function ResultsPanel({
   if (results.length === 0) return null
 
   return (
-    <div className="panel" style={{ marginTop: 24 }}>
+    <div className="panel">
       <h2>Results</h2>
+      <div className="results-cards">
       {results.map((r) => {
         const rounds = trainRounds[r.activity_index] ?? []
         const mt = modalTraining[r.activity_index]
         const isTraining = trainingIndices.has(r.activity_index)
         const isModalTraining =
           modalIndices.has(r.activity_index) || mt?.status === 'running'
-        const pct =
-          r.reward != null ? Math.max(0, Math.min(1, r.reward)) * 100 : 0
+        // After fine-tune, use the latest success rate; otherwise use initial reward.
+        const lastRoundSummary = mt?.rounds.at(-1)
+        const barPct = lastRoundSummary != null
+          ? lastRoundSummary.success_rate * 100
+          : r.reward != null ? Math.max(0, Math.min(1, r.reward)) * 100 : 0
         return (
           <div className="result-card" key={r.activity_index}>
             <div className="rc-head">
               <span className="rc-activity">{r.activity}</span>
-              {statusBadge(r)}
+              {statusBadge(r, mt)}
             </div>
             <div className="rc-meta">
               {r.task}
               {r.target ? ` · ${r.target}` : ''}
               {r.reward != null ? ` · reward ${r.reward.toFixed(3)}` : ''}
             </div>
-            {r.reward != null && (
+            {(r.reward != null || lastRoundSummary != null) && (
               <div className="reward-bar">
-                <div style={{ width: `${pct}%` }} />
+                <div style={{ width: `${barPct}%` }} />
               </div>
             )}
             {r.content && <div className="rc-content">{r.content}</div>}
@@ -218,6 +223,7 @@ export function ResultsPanel({
           </div>
         )
       })}
+      </div>
     </div>
   )
 }

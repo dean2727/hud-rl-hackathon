@@ -108,38 +108,67 @@ export function ProgressTimeline({ events, loading }: { events: TimelineEvent[];
     ? gizmoProgress(events.filter((e) => e.event === 'gizmo'))
     : null
 
-  // The entire Gizmo run collapses into ONE progress-bar row, placed where its
-  // first event landed; everything else renders as a normal timeline item.
-  const rows: ReactNode[] = []
-  let gizmoShown = false
+  // Collapse started→completed pairs: track the last rendered row per key so a
+  // "completed" event replaces the "started" dot+text in-place rather than
+  // appending a new row. Key = stage name for stage events, or event type for others.
+  const rowMap = new Map<string, { rendered: Rendered; key: string; isGizmo?: boolean }>()
+  const rowOrder: string[] = []
+  let gizmoKey: string | null = null
+
   events.forEach((e, i) => {
     if (e.event === 'gizmo') {
-      if (!gizmoShown && gz) {
-        gizmoShown = true
-        rows.push(
-          <div className="tl-item" key={`gz-${i}`}>
-            <span className={`tl-dot ${gz.done ? 'completed' : 'gizmo'}`} />
-            <div className="tl-body" style={{ flex: 1 }}>
-              <div className="tl-title">Generating 3D scene — {gz.label}</div>
-              <div className="gizmo-bar">
-                <div style={{ width: `${gz.pct}%` }} />
-              </div>
-            </div>
-          </div>,
-        )
+      if (!gizmoKey && gz) {
+        gizmoKey = 'gizmo'
+        rowOrder.push('gizmo')
+        rowMap.set('gizmo', { rendered: { dotClass: gz.done ? 'completed' : 'gizmo', title: '' }, key: `gz-${i}`, isGizmo: true })
+      } else if (gizmoKey && gz) {
+        // update gizmo row in place
+        rowMap.set('gizmo', { rendered: { dotClass: gz.done ? 'completed' : 'gizmo', title: '' }, key: `gz-${i}`, isGizmo: true })
       }
       return
     }
     const r = renderEvent(e)
     if (!r) return
-    rows.push(
-      <div className="tl-item" key={i}>
+
+    // Derive a stable dedup key: for stage events use the stage name, for others
+    // use a combination that groups started/completed together.
+    let dedupKey: string
+    if (e.event === 'stage') {
+      dedupKey = `stage:${String(e.data.stage)}`
+    } else if (e.event === 'rollout') {
+      dedupKey = `rollout:${String(e.data.activity_index)}`
+    } else {
+      dedupKey = `${e.event}:${i}` // one-off events don't collapse
+    }
+
+    if (!rowMap.has(dedupKey)) rowOrder.push(dedupKey)
+    rowMap.set(dedupKey, { rendered: r, key: `${dedupKey}-${i}` })
+  })
+
+  const rows: ReactNode[] = rowOrder.map((dk) => {
+    const entry = rowMap.get(dk)!
+    if (entry.isGizmo && gz) {
+      return (
+        <div className="tl-item" key={entry.key}>
+          <span className={`tl-dot ${gz.done ? 'completed' : 'gizmo'}`} />
+          <div className="tl-body" style={{ flex: 1 }}>
+            <div className="tl-title">Generating 3D scene — {gz.label}</div>
+            <div className="gizmo-bar">
+              <div style={{ width: `${gz.pct}%` }} />
+            </div>
+          </div>
+        </div>
+      )
+    }
+    const r = entry.rendered
+    return (
+      <div className="tl-item" key={entry.key}>
         <span className={`tl-dot ${r.dotClass}`} />
         <div className="tl-body">
           <div className="tl-title">{r.title}</div>
           {r.detail && <div className="tl-detail">{r.detail}</div>}
         </div>
-      </div>,
+      </div>
     )
   })
 

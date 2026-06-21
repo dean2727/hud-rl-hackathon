@@ -114,7 +114,7 @@ export function openEventStream(
         data = { raw: (ev as MessageEvent).data }
       }
       onEvent({ event: name, data, ts: Date.now() })
-      if (name === 'done' || name === 'error') es.close()
+      if (name === 'error') es.close()
     })
   }
   return es
