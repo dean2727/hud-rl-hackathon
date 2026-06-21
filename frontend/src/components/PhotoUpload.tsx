@@ -66,7 +66,7 @@ export function PhotoUpload({ photos, onChange, disabled }: Props) {
         onChange={(e) => addFiles(e.target.files)}
       />
       <p className="hint">
-        2-3 photos of where the robot arm would go, and the things it should work
+        1-3 photos of where the robot arm would go, and the things it should work
         with.
       </p>
     </div>

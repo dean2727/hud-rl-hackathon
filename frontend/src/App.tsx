@@ -32,7 +32,7 @@ function App() {
   const cleanActivities = activities.map((a) => a.trim()).filter(Boolean)
   const canStart =
     phase !== 'running' &&
-    photos.length >= 2 &&
+    photos.length >= 1 &&
     photos.length <= 3 &&
     cleanActivities.length > 0
 
@@ -117,7 +117,7 @@ function App() {
               {phase === 'running' ? 'Learning…' : 'Start Learning'}
             </button>
             {phase !== 'running' && !canStart && (
-              <span className="hint">Add 2-3 photos and at least one activity.</span>
+              <span className="hint">Add 1-3 photos and at least one activity.</span>
             )}
           </div>
           {error && <div className="error-banner">{error}</div>}

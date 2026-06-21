@@ -95,7 +95,7 @@ Bring your own policy: copy the `CustomModel`/`CustomAgent` scaffold in
 ## Web app: photo → Gizmo scene → RL
 
 A one-page app (`frontend/` + `backend/`) that turns photos of a real space into a
-trainable scene: upload 2-3 photos of where a robot arm would go, list the
+trainable scene: upload 1-3 photos of where a robot arm would go, list the
 activities you want it to learn, hit **Start Learning**, and watch — over live
 SSE — as it (1) describes the photos with a local multimodal LLM, (2) generates a
 3D scene with [Gizmo](https://gizmo.antimlabs.com), (3) splices in the floating

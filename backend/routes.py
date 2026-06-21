@@ -22,8 +22,8 @@ async def create_run(
     images: list[UploadFile] = File(...),
     activities: list[str] = Form(...),
 ) -> RunCreatedResponse:
-    if not (2 <= len(images) <= 3):
-        raise HTTPException(400, "upload 2-3 photos")
+    if not (1 <= len(images) <= 3):
+        raise HTTPException(400, "upload 1-3 photos")
     cleaned_activities = [a.strip() for a in activities if a.strip()]
     if not cleaned_activities:
         raise HTTPException(400, "list at least one activity")
