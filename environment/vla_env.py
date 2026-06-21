@@ -1,4 +1,4 @@
-"""Worldsim VLA environment - the Franka/LIBERO pick task over the `robot` capability.
+"""Hudathon VLA environment - the Franka/LIBERO pick task over the `robot` capability.
 
 The VLA counterpart of `env.py` (which serves the LLM tool tasks over an `mcp`
 capability). The Newton sim + Franka bridge run in their own process (`sim/host.py`,
@@ -32,7 +32,7 @@ CONTRACT = json.loads((Path(__file__).resolve().parents[1] / "contracts" / "fran
 sim_host = SimHost("robot")
 endpoint = RobotEndpoint.remote(SimHost.host, sim_host.port)
 
-env = Environment(name="worldsim-vla")
+env = Environment(name="hudathon-vla")
 
 
 @env.initialize
@@ -56,6 +56,7 @@ async def vla_pick(
     lift_height: float = 0.55,
     seed: int = 0,
     max_steps: int = 200,
+    reward_spec: dict | str | None = None,
 ):
     """The franka-libero-v1 / pick-the-red-block task.
 
@@ -65,12 +66,16 @@ async def vla_pick(
     """
     prompt = await endpoint.reset(
         scene_id=scene_id, target_object=target_object, instruction=instruction,
-        lift_height=lift_height, seed=seed, max_steps=max_steps,
+        lift_height=lift_height, seed=seed, max_steps=max_steps, reward_spec=reward_spec,
     )
     yield {"prompt": prompt}
 
     res = await endpoint.result()
     progress, success = res["lift_progress"], res["success"]
+    raw_subscores = res.get("subscores") or [
+        {"name": "lift_progress", "weight": 0.5, "value": round(progress, 4)},
+        {"name": "binary_success", "weight": 0.5, "value": 1.0 if success else 0.0},
+    ]
     # reward = weighted sum of the subscores below (self-consistent).
     yield EvaluationResult(
         reward=round(res["score"], 4),
@@ -78,7 +83,11 @@ async def vla_pick(
         content=f"VLA pick '{target_object}': z={res['final_z']:.4f} / {lift_height:.4f} "
                 f"({progress * 100:.1f}% progress). {'SUCCESS' if success else 'INCOMPLETE'}",
         subscores=[
-            SubScore(name="lift_progress", weight=0.5, value=round(progress, 4)),
-            SubScore(name="binary_success", weight=0.5, value=1.0 if success else 0.0),
+            SubScore(
+                name=str(item["name"]),
+                weight=float(item["weight"]),
+                value=float(item["value"]),
+            )
+            for item in raw_subscores
         ],
     )

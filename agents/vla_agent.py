@@ -1,13 +1,14 @@
-"""VLA agents for the `worldsim-vla` env's `robot` capability.
+"""VLA agents for the `hudathon-vla` env's `robot` capability.
 
 You implement the `Model` seam - `infer(batch) -> action chunk` - and the harness
 (`RobotAgent`) owns connect/loop/chunking/telemetry. The env→policy wiring (which
 camera is which, the state layout) comes from the env's contract at connect time, so
 an agent carries no env-specific key names.
 
-Four agents, in order of how much you write:
+Agents, in order of how much you write:
 
   * `PI05Agent`         - a stock LeRobot pi0.5 checkpoint, zero custom code (the baseline).
+  * `PI0Agent`          - the same harness around a LeRobot pi0 checkpoint.
   * `CustomModel`/`CustomAgent` - bring your own policy: the SCAFFOLD below. Subclass
                           `Model`, implement `infer(batch) -> [N, T, A]` chunk.
   * `RemoteAgent`       - keep the weights on a remote GPU box (e.g. Modal) and run
@@ -28,6 +29,7 @@ from hud.agents.robot.agent import RobotAgent
 from hud.agents.robot.model import Model
 
 DEFAULT_CHECKPOINT = "lerobot/pi05_libero_finetuned_v044"
+DEFAULT_PI0_CHECKPOINT = "lerobot/pi0_base"
 
 
 class _ReplanModel(Model):
@@ -53,6 +55,39 @@ class _ReplanModel(Model):
         return self._inner.infer(batch)[:, : self.horizon]
 
 
+def _policy_family_from_checkpoint(checkpoint: str, policy_family: str = "auto") -> str:
+    if policy_family != "auto":
+        return policy_family
+    return "pi05" if "pi05" in checkpoint.lower() else "pi0"
+
+
+def _load_lerobot_policy(checkpoint: str, policy_family: str, device: str):
+    from lerobot.policies.factory import make_pre_post_processors
+
+    family = _policy_family_from_checkpoint(checkpoint, policy_family)
+    if family == "pi05":
+        from lerobot.policies.pi05.modeling_pi05 import PI05Policy
+
+        policy_cls = PI05Policy
+    elif family == "pi0":
+        try:
+            from lerobot.policies.pi0 import PI0Policy
+        except ImportError:
+            from lerobot.policies.pi0.modeling_pi0 import PI0Policy
+
+        policy_cls = PI0Policy
+    else:
+        raise ValueError(f"unsupported LeRobot policy family: {family!r}")
+
+    policy = policy_cls.from_pretrained(checkpoint).to(device).eval()
+    preprocess, postprocess = make_pre_post_processors(
+        policy.config,
+        checkpoint,
+        preprocessor_overrides={"device_processor": {"device": device}},
+    )
+    return policy, preprocess, postprocess, family
+
+
 class PI05Agent(RobotAgent):
     """Stock pi0.5 LIBERO checkpoint - the reference baseline (needs a GPU + lerobot)."""
 
@@ -65,21 +100,35 @@ class PI05Agent(RobotAgent):
         replan_horizon: int = 10,
     ) -> None:
         import torch
-        from lerobot.policies.factory import make_pre_post_processors
-        from lerobot.policies.pi05.modeling_pi05 import PI05Policy
 
         from hud.agents.robot.adapter import LeRobotAdapter
 
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         print(f"[agent] loading policy: {checkpoint} (device={self.device})", flush=True)
-        policy = PI05Policy.from_pretrained(checkpoint).to(self.device).eval()
-        preprocess, postprocess = make_pre_post_processors(
-            policy.config, checkpoint,
-            preprocessor_overrides={"device_processor": {"device": self.device}},
-        )
+        policy, preprocess, postprocess, _family = _load_lerobot_policy(checkpoint, "pi05", self.device)
         self.model = _ReplanModel(policy, preprocess, postprocess, horizon=replan_horizon)
         # Maps the env's two cameras onto the checkpoint's image slots in contract
         # order (the 3rd pi0.5 slot is auto zero-padded); state + prompt pass through.
+        self.adapter = LeRobotAdapter(model_image_keys=list(policy.config.image_features))
+
+
+class PI0Agent(PI05Agent):
+    """Stock LeRobot pi0 checkpoint - useful for training-loop smoke tests."""
+
+    def __init__(
+        self,
+        checkpoint: str = DEFAULT_PI0_CHECKPOINT,
+        device: str | None = None,
+        replan_horizon: int = 10,
+    ) -> None:
+        import torch
+
+        from hud.agents.robot.adapter import LeRobotAdapter
+
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"[agent] loading policy: {checkpoint} (device={self.device})", flush=True)
+        policy, preprocess, postprocess, _family = _load_lerobot_policy(checkpoint, "pi0", self.device)
+        self.model = _ReplanModel(policy, preprocess, postprocess, horizon=replan_horizon)
         self.adapter = LeRobotAdapter(model_image_keys=list(policy.config.image_features))
 
 
@@ -140,7 +189,7 @@ class CustomModel(Model):
 
 
 class CustomAgent(RobotAgent):
-    """Your policy on the worldsim-vla env. `OpenPIAdapter` hands `infer` the raw contract
+    """Your policy on the hudathon-vla env. `OpenPIAdapter` hands `infer` the raw contract
     observation above; for env-specific reshaping subclass `Adapter` instead."""
 
     max_steps = 200
@@ -173,6 +222,6 @@ class NoopAgent(RobotAgent):
 
 
 __all__ = [
-    "DEFAULT_CHECKPOINT", "CustomAgent", "CustomModel",
-    "NoopAgent", "NoopModel", "PI05Agent", "RemoteAgent",
+    "DEFAULT_CHECKPOINT", "DEFAULT_PI0_CHECKPOINT", "CustomAgent", "CustomModel",
+    "NoopAgent", "NoopModel", "PI0Agent", "PI05Agent", "RemoteAgent",
 ]

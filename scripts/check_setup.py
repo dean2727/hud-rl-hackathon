@@ -71,7 +71,7 @@ async def rollout_check() -> bool:
 
 def main() -> int:
     print("=" * 70)
-    print("Worldsim x HUD - setup check")
+    print("Hudathon x HUD - setup check")
     print("=" * 70)
 
     print("\nPython")

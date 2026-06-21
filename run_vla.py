@@ -146,7 +146,7 @@ async def _diagnose(job: object, dump_dir: Path, watch: _UploadWatch) -> None:
 
 async def run_eval(args: argparse.Namespace) -> None:
     if args.record:
-        os.environ["WORLDSIM_RECORD_DIR"] = args.record  # the bridge records when this is set
+        os.environ["HUDATHON_RECORD_DIR"] = args.record  # the bridge records when this is set
 
     # Telemetry diagnostics: dump every emitted span to disk (the emit-side truth,
     # immune to upload drops) and tap the exporter's failure warnings.
@@ -175,8 +175,12 @@ async def run_eval(args: argparse.Namespace) -> None:
         agent = getattr(importlib.import_module(mod_name), cls_name)()
         policy = args.agent
     else:
-        from agents.vla_agent import PI05Agent
-        agent = PI05Agent(checkpoint=args.checkpoint)
+        if args.policy_family == "pi0" or (args.policy_family == "auto" and "pi05" not in args.checkpoint.lower()):
+            from agents.vla_agent import PI0Agent
+            agent = PI0Agent(checkpoint=args.checkpoint)
+        else:
+            from agents.vla_agent import PI05Agent
+            agent = PI05Agent(checkpoint=args.checkpoint)
         policy = args.checkpoint
 
     tasks = [
@@ -186,7 +190,7 @@ async def run_eval(args: argparse.Namespace) -> None:
     ]
     print(f"VLA eval: {args.group} rollout(s) of {args.instruction!r} (policy: {policy})\n")
 
-    job = await Taskset("worldsim-vla", tasks).run(
+    job = await Taskset("hudathon-vla", tasks).run(
         agent, runtime=LocalRuntime(str(ROOT / "environment" / "vla_env.py")),
         max_concurrent=args.max_concurrent,
     )
@@ -210,7 +214,8 @@ def main() -> None:
     ap.add_argument("--noop", action="store_true", help="use the no-op agent (no GPU/model) to test the wire")
     ap.add_argument("--remote", default=None, metavar="HOST:PORT", help="run inference on a remote openpi/0 policy server (GPU box); see serve/")
     ap.add_argument("--agent", default=None, metavar="MODULE:CLASS", help="bring your own RobotAgent, e.g. agents.vla_agent:CustomAgent")
-    ap.add_argument("--checkpoint", default="lerobot/pi05_libero_finetuned_v044", help="LeRobot checkpoint for the pi0.5 agent")
+    ap.add_argument("--checkpoint", default="lerobot/pi05_libero_finetuned_v044", help="LeRobot checkpoint for the local agent")
+    ap.add_argument("--policy-family", choices=("auto", "pi0", "pi05"), default="auto", help="LeRobot local policy family")
     ap.add_argument("--threshold", type=float, default=0.999, metavar="R", help="reward >= R counts as success (1.0 = fully lifted)")
     ap.add_argument("--max-steps", type=int, default=200, metavar="N", help="max control steps per rollout")
     ap.add_argument("--max-concurrent", type=int, default=1, metavar="N", help="parallel rollouts (one sim per env process)")

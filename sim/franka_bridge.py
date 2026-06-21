@@ -35,11 +35,13 @@ from hud.environment.robot import RobotBridge
 # step machinery + the Franka EE controller. We drive its module singleton (one scene
 # per rollout process - the VLA path never shares it with the LLM `mcp` tool path,
 # which lives in a different served env).
+from rewards.engine import RewardComputation, compute_pick_reward
+from rewards.spec import RewardSpec
 from sim import control as ctl
 from sim import server as sim_server
 
 
-class WorldsimFrankaBridge(RobotBridge):
+class HudathonFrankaBridge(RobotBridge):
     """Serve the franka-libero-v1 Newton scene over the `robot` protocol.
 
     One sim step per received action (OSC/IK + `decimation` Newton substeps).
@@ -51,20 +53,25 @@ class WorldsimFrankaBridge(RobotBridge):
         *,
         decimation: int = 25,   # sim substeps per action: 25 = 20 Hz control at dt=0.002
         image_size: int = 256,  # LIBERO renders 256x256
-        record_dir: str | None = None,  # set (or WORLDSIM_RECORD_DIR) to dump a dataset
+        record_dir: str | None = None,  # set (or HUDATHON_RECORD_DIR) to dump a dataset
         host: str = "127.0.0.1",
         port: int = 0,
     ) -> None:
         super().__init__(host=host, port=port)
         self.decimation = decimation
         self.image_size = image_size
-        self._record_dir = record_dir or os.environ.get("WORLDSIM_RECORD_DIR")
+        self._record_dir = record_dir or os.environ.get("HUDATHON_RECORD_DIR")
         # Episode/task state (set on reset).
         self._target_object = "block"
         self._instruction = ""
         self._lift_height = 0.55
         self._initial_z = 0.43
         self._final_z = 0.43
+        self._reward_spec = RewardSpec.pick(
+            instruction="pick up the red block",
+            target_object="block",
+            lift_height=0.55,
+        )
         self._max_steps = 200
         # Reused offscreen renderer (one per size; recreating per frame leaks GL).
         self._renderer: mujoco.Renderer | None = None
@@ -91,6 +98,7 @@ class WorldsimFrankaBridge(RobotBridge):
         lift_height: float = 0.55,
         seed: int = 0,
         max_steps: int = 200,
+        reward_spec: dict[str, Any] | str | None = None,
     ) -> str:
         """Load the scene (home pose + settle), then return the instruction prompt.
 
@@ -104,7 +112,16 @@ class WorldsimFrankaBridge(RobotBridge):
 
         self._target_object = target_object
         self._instruction = instruction
-        self._lift_height = lift_height
+        self._reward_spec = (
+            RewardSpec.parse(reward_spec)
+            if reward_spec is not None
+            else RewardSpec.pick(
+                instruction=instruction,
+                target_object=target_object,
+                lift_height=lift_height,
+            )
+        )
+        self._lift_height = float(self._reward_spec.params.get("lift_height", lift_height))
         self._max_steps = max_steps
         self._initial_z = self._object_z()
         self._final_z = self._initial_z
@@ -135,8 +152,9 @@ class WorldsimFrankaBridge(RobotBridge):
         self._final_z = self._object_z()
         # success = goal achieved (block lifted); a step-count timeout terminates the
         # episode but is NOT a success (spec: timeout != win).
-        self.success = self._final_z >= self._lift_height
-        self.total_reward = self._reward()
+        reward = self._compute_reward()
+        self.success = reward.success
+        self.total_reward = reward.score
         self.terminated = self.success or sim.step_count >= self._max_steps
 
     def get_observation(self) -> tuple[dict[str, np.ndarray], bool] | None:
@@ -162,28 +180,37 @@ class WorldsimFrankaBridge(RobotBridge):
         reward = 0.5*lift_progress + 0.5*success - self-consistent with the subscores
         the template emits (full lift scores 1.0; a partial lift gets partial credit).
         """
-        progress = self._lift_progress()
-        reward = self._reward()
+        reward = self._compute_reward()
         res = {
-            "score": round(reward, 4),
-            "success": bool(self.success),
-            "total_reward": round(reward, 4),
-            "lift_progress": round(progress, 4),
+            "score": reward.score,
+            "success": reward.success,
+            "total_reward": reward.score,
+            "lift_progress": reward.progress,
             "final_z": round(self._final_z, 4),
             "lift_height": self._lift_height,
+            "reward_spec": self._reward_spec.as_dict(),
+            "subscores": reward.subscores(self._reward_spec),
         }
         self._finish_recording_episode(res)
         return res
 
     # ── grading helpers ──────────────────────────────────────────────────────
     def _lift_progress(self) -> float:
-        span = self._lift_height - self._initial_z
-        if span <= 1e-3:
-            return 1.0
-        return max(0.0, min(1.0, (self._final_z - self._initial_z) / span))
+        return self._compute_reward().progress
 
     def _reward(self) -> float:
-        return 0.5 * self._lift_progress() + 0.5 * (1.0 if self.success else 0.0)
+        return self._compute_reward().score
+
+    def _compute_reward(self) -> RewardComputation:
+        if self._reward_spec.archetype != "pick":
+            raise NotImplementedError(
+                f"VLA bridge currently supports pick rewards, got {self._reward_spec.archetype!r}"
+            )
+        return compute_pick_reward(
+            self._reward_spec,
+            initial_z=self._initial_z,
+            final_z=self._final_z,
+        )
 
     def _object_z(self) -> float:
         obj = sim_server.get_object_state(object_name=self._target_object)
@@ -199,7 +226,7 @@ class WorldsimFrankaBridge(RobotBridge):
         self._renderer.update_scene(rdata, cam)
         return np.ascontiguousarray(self._renderer.render(), dtype=np.uint8)  # HWC uint8
 
-    # ── optional dataset recording (env-side, enable with WORLDSIM_RECORD_DIR) ──────
+    # ── optional dataset recording (env-side, enable with HUDATHON_RECORD_DIR) ──────
     def _start_recording_episode(self, seed: int) -> None:
         if not self._record_dir:
             return
@@ -225,11 +252,12 @@ class WorldsimFrankaBridge(RobotBridge):
         self._step_log.close()
         (self._ep_dir / "episode.json").write_text(json.dumps({
             "instruction": self._instruction, "target_object": self._target_object,
-            "lift_height": self._lift_height, "steps": self._rec_t,
+            "lift_height": self._lift_height, "reward_spec": self._reward_spec.as_dict(),
+            "steps": self._rec_t,
             "recorded_at": time.time(), **res,
         }, indent=2) + "\n")
         self._ep_index += 1
         self._ep_dir = None
 
 
-__all__ = ["WorldsimFrankaBridge"]
+__all__ = ["HudathonFrankaBridge"]

@@ -1,4 +1,4 @@
-"""Worldsim robotics environment - LLM tool-control tasks on Newton scenes.
+"""Hudathon robotics environment - LLM tool-control tasks on Newton scenes.
 
 The Newton sim runs in its own process (`sim/host.py`, spawned in `@env.initialize`)
 and is served as an `mcp` capability - a FastMCP tool server the agent's harness
@@ -71,7 +71,7 @@ class SimClient:
         return {}
 
 
-env = Environment(name="worldsim-robotics")
+env = Environment(name="hudathon-robotics")
 sim_host = SimHost("mcp")
 sim_tools = SimClient(sim_host.mcp_url)  # env-side reset + grading reads over mcp
 

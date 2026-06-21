@@ -1,21 +1,22 @@
 [project]
-name = "worldsim"
+name = "hudathon"
 version = "0.1.0"
-description = "Worldsim robotics tasks on HUD: Newton sim served as an mcp capability"
+description = "Hudathon robotics tasks on HUD: Newton sim served as an mcp capability"
 requires-python = ">=3.12,<3.13"
 
 # Eval-machine dependencies. The Newton physics engine (`newton` + `gizmo`) is
 # NOT on PyPI: it ships as a pre-built wheel in wheels/ (see [tool.uv.sources]).
 dependencies = [
-    "hud-python>=0.6.5",  # HUD SDK: Environment, capabilities, hud eval
-    "mujoco>=3.2.0",       # rendering, model name lookups, IK
+    "hud-python>=0.6.5", # HUD SDK: Environment, capabilities, hud eval
+    "mujoco>=3.2.0", # rendering, model name lookups, IK
     "numpy>=1.26.0",
-    "Pillow>=10.0.0",      # base64 PNG encode/decode for render()
-    "warp-lang>=1.13.0",   # Newton's compute backend
-    "newton",              # Newton engine (bundled wheel, see below)
-    "mujoco-warp>=3.8.0.1",  # Newton's MuJoCo solver backend
-    "scipy>=1.11.0",       # mesh processing during scene import
-    "trimesh>=4.6.8",      # mesh loading during scene import
+    "Pillow>=10.0.0", # base64 PNG encode/decode for render()
+    "warp-lang>=1.13.0", # Newton's compute backend
+    "newton", # Newton engine (bundled wheel, see below)
+    "mujoco-warp>=3.8.0.1", # Newton's MuJoCo solver backend
+    "scipy>=1.11.0", # mesh processing during scene import
+    "trimesh>=4.6.8", # mesh loading during scene import
+    "modal>=1.5.0",
 ]
 
 [project.optional-dependencies]
@@ -37,7 +38,7 @@ serve = [
     "websockets>=12.0",    # the policy server's websocket transport
     "modal>=0.64",         # optional: `modal run serve/pi05_modal.py` (managed GPU)
 ]
-# Live 3D viewer (WORLDSIM_VIEWER=1; the sim process renders it - see sim/host.py).
+# Live 3D viewer (HUDATHON_VIEWER=1; the sim process renders it - see sim/host.py).
 # Needs a display; the Gizmo desktop shell uses imgui-bundle, the bare Newton
 # ViewerGL fallback uses pyglet.
 viewer = [

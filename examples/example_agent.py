@@ -1,6 +1,6 @@
 """Example agents driving the sim's `mcp` capability directly - no policy server.
 
-Shows that a Worldsim scene is just a live environment with a tool API. Two ways to
+Shows that a Hudathon scene is just a live environment with a tool API. Two ways to
 drive the `move-object` task (push the mug to a goal spot on the table):
 
     # 1) Scripted agent (default): deterministic, scores ~1.0, no model.

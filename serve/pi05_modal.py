@@ -1,4 +1,4 @@
-"""Serve the pi0.5 policy on a Modal GPU. `modal run serve/pi05_modal.py` -> ws://HOST:PORT.
+"""Serve a LeRobot pi0/pi0.5 policy on a Modal GPU.
 
 The zero-infrastructure way to run the policy on a remote GPU box: no machine to
 rent or SSH into. This runs the same `serve/policy_server.py` server on a Modal
@@ -17,14 +17,17 @@ the server with Ctrl-C (or let `--timeout` expire).
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 import modal
 
-CHECKPOINT = "lerobot/pi05_libero_finetuned_v044"
+CHECKPOINT = os.environ.get("HUDATHON_POLICY_CHECKPOINT", "lerobot/pi05_libero_finetuned_v044")
+POLICY_FAMILY = os.environ.get("HUDATHON_POLICY_FAMILY", "pi05")
 PORT = 8000
 CACHE = "/cache"  # HF cache (checkpoint + processors), Volume-backed so it persists
+CHECKPOINTS = "/checkpoints"
 
 # lerobot is pinned to a git commit (0.5.2 isn't on PyPI; PyPI's 0.5.1 lacks pi05).
 _LEROBOT = "lerobot @ git+https://github.com/huggingface/lerobot.git@b8ad81bf397d59dda69ccfc7e74e847f0a9d4fbf"
@@ -46,22 +49,36 @@ image = (
     .env({"HF_HOME": CACHE, "PYTHONPATH": "/root"})
 )
 
-app = modal.App("worldsim-pi05-serve")
-cache_vol = modal.Volume.from_name("worldsim-pi05-cache", create_if_missing=True)
+app = modal.App("hudathon-policy-serve")
+cache_vol = modal.Volume.from_name("hudathon-pi05-cache", create_if_missing=True)
+checkpoint_vol = modal.Volume.from_name("hudathon-policy-checkpoints", create_if_missing=True)
 
 
-@app.function(image=image, gpu="A100", timeout=24 * 3600, volumes={CACHE: cache_vol})
+@app.function(
+    image=image,
+    gpu="A100",
+    timeout=24 * 3600,
+    volumes={CACHE: cache_vol, CHECKPOINTS: checkpoint_vol},
+)
 def serve() -> None:
     import asyncio
 
     sys.path.insert(0, "/root/serve")
-    from policy_server import build_pi05_infer, serve_openpi
+    from policy_server import build_lerobot_infer, serve_openpi
 
-    infer = build_pi05_infer(CHECKPOINT, device="cuda")
+    checkpoint = CHECKPOINT
+    if checkpoint.startswith("volume:"):
+        checkpoint = str(Path(CHECKPOINTS) / checkpoint.removeprefix("volume:").lstrip("/"))
+    infer = build_lerobot_infer(checkpoint, device="cuda", policy_family=POLICY_FAMILY)
     with modal.forward(PORT, unencrypted=True) as tunnel:
         host, port = tunnel.tcp_socket
-        print(f"[serve] pi0.5 ready - run: python run_vla.py --remote {host}:{port}", flush=True)
-        asyncio.run(serve_openpi("0.0.0.0", PORT, infer, metadata={"checkpoint": CHECKPOINT}))
+        print(f"[serve] policy ready - run: python run_vla.py --remote {host}:{port}", flush=True)
+        asyncio.run(serve_openpi(
+            "0.0.0.0",
+            PORT,
+            infer,
+            metadata={"checkpoint": checkpoint, "policy_family": POLICY_FAMILY},
+        ))
 
 
 @app.local_entrypoint()

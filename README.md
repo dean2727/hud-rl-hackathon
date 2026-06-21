@@ -1,8 +1,8 @@
 <h1 align="center">
-  <img src="antim.png" alt="Antim Labs" height="30"> &nbsp;&nbsp;×&nbsp;&nbsp; <img src="hud_logo.svg" alt="HUD" height="28"> &nbsp;&nbsp;|&nbsp;&nbsp; World Sim RL Environment Template
+  <img src="antim.png" alt="Antim Labs" height="30"> &nbsp;&nbsp;×&nbsp;&nbsp; <img src="hud_logo.svg" alt="HUD" height="28"> &nbsp;&nbsp;|&nbsp;&nbsp; Hudathon RL Environment
 </h1>
 
-Worldsim robotics tasks on the **HUD SDK**. A Newton physics scene is a live
+Hudathon robotics tasks on the **HUD SDK**. A Newton physics scene is a live
 environment with a tool API; you drive it with an LLM agent or a VLA policy and it
 scores the rollout.
 
@@ -13,7 +13,7 @@ scores the rollout.
 - **VLA policy eval** - `franka-libero-v1` / "pick up the red block", served as a
   `robot` (openpi/0) capability: bring a policy, get a success rate.
 
-The sim runs in its own process (the env spawns it); set `WORLDSIM_VIEWER=1` to watch
+The sim runs in its own process (the env spawns it); set `HUDATHON_VIEWER=1` to watch
 any run in a live 3D window.
 
 **Scenes are environments.** Any folder under `scenes/` is a live env you can
@@ -65,7 +65,7 @@ python examples/example_agent.py --llm      # an LLM drives the tools
 python run_vla.py --noop --group 1
 
 # watch any run live in a 3D window (needs a display)
-WORLDSIM_VIEWER=1 hud eval environment/tasks.py claude --group 1
+HUDATHON_VIEWER=1 hud eval environment/tasks.py claude --group 1
 ```
 
 ## VLA policy eval
@@ -95,7 +95,7 @@ Bring your own policy: copy the `CustomModel`/`CustomAgent` scaffold in
 ## Layout
 
 ```
-worldsim-template/
+hudathon/
 ├── environment/   the envs + tasks: env.py (LLM), vla_env.py (VLA), tasks.py
 ├── examples/      example_agent.py - an agent on the tool API (scripted + LLM)
 ├── agents/        vla_agent.py - VLA policies: pi0.5 baseline + bring-your-own

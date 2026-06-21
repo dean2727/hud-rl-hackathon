@@ -8,7 +8,7 @@ The LLM tasks use the floating-gripper tabletop scene; the VLA tools
 (`get_observation`, `step_ee`) drive the Franka robot capability.
 
 An optional live 3D viewer (`run_viewer`, off by default) renders the running
-scene in a window - `sim/host.py` runs it on the main thread when `WORLDSIM_VIEWER=1`.
+scene in a window - `sim/host.py` runs it on the main thread when `HUDATHON_VIEWER=1`.
 """
 
 from __future__ import annotations
@@ -64,7 +64,7 @@ from fastmcp.utilities.types import Image as MCPImage  # returned by render() so
 
 SCENES_DIR = Path(os.environ.get("SCENES_DIR", Path(__file__).resolve().parents[1] / "scenes"))
 
-server = FastMCP(name="worldsim-newton")
+server = FastMCP(name="hudathon-newton")
 
 _SCENE_FILES = ("scene.xml", "scene.mjcf", "scene.usd", "scene.usda", "scene.urdf")
 

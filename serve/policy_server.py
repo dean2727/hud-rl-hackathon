@@ -6,7 +6,7 @@ The eval machine runs the sim + loop and connects with `run_vla.py --remote
 HOST:PORT` (a `RemoteAgent`), so the box that has the GPU is the *only* thing that
 needs torch/lerobot/CUDA.
 
-    # real pi0.5 baseline (GPU box, needs `.[robot,vla]`):
+    # real LeRobot baseline (GPU box, needs `.[robot,vla]`):
     python serve/policy_server.py --port 8000
 
     # weightless wire check (no GPU / no model) - pairs with run_vla.py --remote:
@@ -19,7 +19,7 @@ Protocol (matches openpi-client `WebsocketClientPolicy`): on connect the server
 sends a metadata dict, then for each received observation dict replies with
 `{"actions": <[T, A] chunk>}`. The observation arrives with the env's openpi wire
 keys (`observation/image`, `observation/wrist_image`, `observation/state`) plus
-`prompt` - exactly what `WorldsimFrankaBridge.get_observation` emits, shipped as-is by
+`prompt` - exactly what `HudathonFrankaBridge.get_observation` emits, shipped as-is by
 the agent's `OpenPIAdapter`.
 """
 
@@ -37,6 +37,7 @@ from openpi_client import msgpack_numpy
 # The env's two cameras in contract order; mapped onto the policy's image slots.
 ENV_IMAGE_KEYS = ["observation/image", "observation/wrist_image"]
 DEFAULT_CHECKPOINT = "lerobot/pi05_libero_finetuned_v044"
+DEFAULT_PI0_CHECKPOINT = "lerobot/pi0_base"
 
 InferFn = Callable[[dict[str, Any]], dict[str, Any]]
 
@@ -60,10 +61,35 @@ async def serve_openpi(host: str, port: int, infer: InferFn, *, metadata: dict |
         await server.serve_forever()
 
 
-def build_pi05_infer(
-    checkpoint: str = DEFAULT_CHECKPOINT, device: str | None = None, horizon: int = 10
+def _policy_family_from_checkpoint(checkpoint: str, policy_family: str = "auto") -> str:
+    if policy_family != "auto":
+        return policy_family
+    return "pi05" if "pi05" in checkpoint.lower() else "pi0"
+
+
+def _load_policy_class(checkpoint: str, policy_family: str):
+    family = _policy_family_from_checkpoint(checkpoint, policy_family)
+    if family == "pi05":
+        from lerobot.policies.pi05.modeling_pi05 import PI05Policy
+
+        return PI05Policy, family
+    if family == "pi0":
+        try:
+            from lerobot.policies.pi0 import PI0Policy
+        except ImportError:
+            from lerobot.policies.pi0.modeling_pi0 import PI0Policy
+
+        return PI0Policy, family
+    raise ValueError(f"unsupported LeRobot policy family: {family!r}")
+
+
+def build_lerobot_infer(
+    checkpoint: str = DEFAULT_CHECKPOINT,
+    device: str | None = None,
+    horizon: int = 10,
+    policy_family: str = "auto",
 ) -> InferFn:
-    """Load a pi0.5 LIBERO checkpoint and return its openpi `infer` (needs a GPU + lerobot).
+    """Load a LeRobot pi0/pi0.5 checkpoint and return its openpi `infer`.
 
     Mirrors the in-process `PI05Agent`: same checkpoint, same LeRobot pre/post, same
     replan horizon - only the transport differs. The chunk is truncated to `horizon`
@@ -72,13 +98,13 @@ def build_pi05_infer(
     """
     import torch
     from lerobot.policies.factory import make_pre_post_processors
-    from lerobot.policies.pi05.modeling_pi05 import PI05Policy
 
     from hud.agents.robot.model import LeRobotModel
 
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"[serve] loading policy: {checkpoint} (device={device})", flush=True)
-    policy = PI05Policy.from_pretrained(checkpoint).to(device).eval()
+    policy_cls, family = _load_policy_class(checkpoint, policy_family)
+    print(f"[serve] loading {family} policy: {checkpoint} (device={device})", flush=True)
+    policy = policy_cls.from_pretrained(checkpoint).to(device).eval()
     preprocess, postprocess = make_pre_post_processors(
         policy.config, checkpoint,
         preprocessor_overrides={"device_processor": {"device": device}},
@@ -99,6 +125,18 @@ def build_pi05_infer(
     return infer
 
 
+def build_pi05_infer(
+    checkpoint: str = DEFAULT_CHECKPOINT, device: str | None = None, horizon: int = 10
+) -> InferFn:
+    return build_lerobot_infer(checkpoint, device=device, horizon=horizon, policy_family="pi05")
+
+
+def build_pi0_infer(
+    checkpoint: str = DEFAULT_PI0_CHECKPOINT, device: str | None = None, horizon: int = 10
+) -> InferFn:
+    return build_lerobot_infer(checkpoint, device=device, horizon=horizon, policy_family="pi0")
+
+
 def build_noop_infer(horizon: int = 10) -> InferFn:
     """Weightless infer: hold position, gripper open. The remote analogue of NoopAgent."""
     chunk = np.tile([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0], (horizon, 1)).astype(np.float32)
@@ -114,12 +152,26 @@ def main() -> None:
     ap.add_argument("--host", default="0.0.0.0", help="bind address")
     ap.add_argument("--port", type=int, default=8000, help="bind port")
     ap.add_argument("--noop", action="store_true", help="serve a weightless no-op policy (no GPU/model)")
-    ap.add_argument("--checkpoint", default=DEFAULT_CHECKPOINT, help="LeRobot checkpoint for pi0.5")
+    ap.add_argument("--checkpoint", default=DEFAULT_CHECKPOINT, help="LeRobot checkpoint or local checkpoint path")
+    ap.add_argument("--policy-family", choices=("auto", "pi0", "pi05"), default="auto", help="LeRobot policy family")
     ap.add_argument("--horizon", type=int, default=10, help="actions per returned chunk (replan period)")
     args = ap.parse_args()
 
-    infer = build_noop_infer(args.horizon) if args.noop else build_pi05_infer(args.checkpoint, horizon=args.horizon)
-    asyncio.run(serve_openpi(args.host, args.port, infer))
+    infer = (
+        build_noop_infer(args.horizon)
+        if args.noop
+        else build_lerobot_infer(
+            args.checkpoint,
+            horizon=args.horizon,
+            policy_family=args.policy_family,
+        )
+    )
+    asyncio.run(serve_openpi(
+        args.host,
+        args.port,
+        infer,
+        metadata={"checkpoint": args.checkpoint, "policy_family": args.policy_family},
+    ))
 
 
 if __name__ == "__main__":
