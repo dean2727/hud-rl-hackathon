@@ -65,6 +65,11 @@ image = (
 app = modal.App("hudathon-train")
 cache_vol = modal.Volume.from_name("hudathon-hf-cache", create_if_missing=True)
 checkpoint_vol = modal.Volume.from_name(CFG.modal_volume_name, create_if_missing=True)
+# HF auth for higher rate limits + faster checkpoint downloads. Create the secret once:
+#   modal secret create huggingface HF_TOKEN=hf_xxx
+# huggingface_hub reads HF_TOKEN from the env this injects. (Public repos still work
+# without it — just rate-limited; the secret must exist once it's referenced here.)
+hf_secret = modal.Secret.from_name("huggingface")
 
 
 @app.function(
@@ -72,6 +77,7 @@ checkpoint_vol = modal.Volume.from_name(CFG.modal_volume_name, create_if_missing
     gpu="A100",
     timeout=24 * 3600,
     volumes={HF_CACHE: cache_vol, CHECKPOINTS: checkpoint_vol},
+    secrets=[hf_secret],
 )
 def serve_policy(
     checkpoint: str = CFG.base_checkpoint,
@@ -107,6 +113,7 @@ def serve_policy(
     gpu="A100",
     timeout=24 * 3600,
     volumes={HF_CACHE: cache_vol, CHECKPOINTS: checkpoint_vol},
+    secrets=[hf_secret],
 )
 def fine_tune(
     dataset_repo_id: str,
