@@ -176,6 +176,17 @@ def _resolve_camera(model: "mujoco.MjModel", camera: str | int) -> str | int:
     return camera
 
 
+def _physics_mj(sim: _Sim) -> tuple[mujoco.MjModel, mujoco.MjData]:
+    """Newton solver MuJoCo handles — the only valid target for ``ctrl`` + ``mj_step``.
+
+    Gizmo scenes often load a wider render MJCF (extra actuators) than the solver
+    exports; always drive physics through the solver copy.
+    """
+    if sim.solver is None:
+        raise RuntimeError("No simulation loaded.")
+    return sim.solver.mj_model, sim.solver.mj_data
+
+
 def _newton_step(action: list[float]) -> None:
     """Step physics through Newton's solver with direct actuator control."""
     sim = _sim
@@ -284,18 +295,20 @@ def reset(
                 _sim.metadata = json.load(f)
 
         # --- Detect a Franka/VLA scene and apply the home pose ---
-        # Anchored on the render MJCF model (it carries the `eef` site + cameras);
-        # ctrl is applied to the authoritative Newton solver data, which shares the
-        # MJCF's positional layout (the same assumption `_sync_render_data` relies on).
+        # Resolve robot indices on the solver MJCF (physics authority). The render
+        # clone may include extra actuators from a composed Gizmo export.
         names_m = _sim.mj_model or solver.mj_model
         smj_m, smj_d = solver.mj_model, solver.mj_data
         settle_ctrl = np.zeros(smj_m.nu)
-        try:
-            _sim.robot_idx = ctl.RobotIndex.from_model(names_m)
-            _sim.ee_cfg = ctl.EEControlConfig()
-            _sim.is_vla_scene = True
-        except ValueError:
-            _sim.is_vla_scene = False
+        _sim.is_vla_scene = False
+        for candidate in (smj_m, names_m):
+            try:
+                _sim.robot_idx = ctl.RobotIndex.from_model(candidate)
+                _sim.ee_cfg = ctl.EEControlConfig()
+                _sim.is_vla_scene = True
+                break
+            except ValueError:
+                continue
 
         if _sim.is_vla_scene:
             def _jadr(name: str) -> int:
@@ -487,12 +500,12 @@ def step_ee(action: list[float], decimation: int = 25, image_size: int = 256) ->
     if len(action) != 7:
         return {"error": f"Expected 7-dim delta-EE action, got {len(action)}"}
 
-    rmodel = sim.mj_model or sim.solver.mj_model
-    rdata = sim.mj_data or sim.solver.mj_data
     with sim.lock:
         if sim.robot_idx is None:
-            sim.robot_idx = ctl.RobotIndex.from_model(rmodel)
-        ctrl = ctl.compute_ctrl(rmodel, rdata, np.asarray(action, dtype=float), sim.robot_idx, sim.ee_cfg)
+            pm, _ = _physics_mj(sim)
+            sim.robot_idx = ctl.RobotIndex.from_model(pm)
+        pm, pd = _physics_mj(sim)
+        ctrl = ctl.compute_ctrl(pm, pd, np.asarray(action, dtype=float), sim.robot_idx, sim.ee_cfg)
         ctrl_list = ctrl.tolist()
         for _ in range(decimation):
             _newton_step(ctrl_list)

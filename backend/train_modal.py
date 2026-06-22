@@ -68,13 +68,23 @@ def _activity(run: RunState, activity_index: int):
 
 def _build_cfg(run: RunState, activity) -> TrainConfig:
     """Point a TrainConfig at this run's scene/activity (overrides env defaults)."""
+    from backend.reward_compiler import compile_reward_heuristic
+
     base = TrainConfig()
     target = (activity.mapping.target if activity and activity.mapping else None) or base.target_object
+    instruction = (activity.activity if activity else base.instruction)
+    objects = list(run.objects.keys()) if run.objects else []
+    program = compile_reward_heuristic(instruction, objects).program.as_dict()
+    lift_height = base.lift_height
+    if activity and activity.mapping and "lift_height" in activity.mapping.kwargs:
+        lift_height = float(activity.mapping.kwargs["lift_height"])
     return dataclasses.replace(
         base,
         scene_id=run.scene_id or base.scene_id,
-        instruction=(activity.activity if activity else base.instruction),
+        instruction=instruction,
         target_object=target,
+        lift_height=lift_height,
+        reward_program=program,
     )
 
 

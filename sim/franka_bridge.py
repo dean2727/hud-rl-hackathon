@@ -173,12 +173,11 @@ class HudathonFrankaBridge(RobotBridge):
         if self.terminated:
             return
         sim = sim_server._sim
-        rmodel = sim.mj_model or sim.solver.mj_model
-        rdata = sim.mj_data or sim.solver.mj_data
         with sim.lock:
+            pm, pd = sim_server._physics_mj(sim)
             # OSC/IK once, held for `decimation` Newton substeps.
             ctrl = ctl.compute_ctrl(
-                rmodel, rdata, np.asarray(action, dtype=float), sim.robot_idx, sim.ee_cfg
+                pm, pd, np.asarray(action, dtype=float), sim.robot_idx, sim.ee_cfg
             ).tolist()
             for _ in range(self.decimation):
                 sim_server._newton_step(ctrl)

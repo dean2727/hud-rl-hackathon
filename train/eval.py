@@ -100,27 +100,32 @@ async def run_eval_batch(
     record_dir.mkdir(parents=True, exist_ok=True)
     os.environ["HUDATHON_RECORD_DIR"] = str(record_dir)
 
-    spec = reward_spec or RewardSpec.pick(
-        instruction=cfg.instruction,
-        target_object=cfg.target_object,
-        lift_height=cfg.lift_height,
-    )
+    if reward_spec is not None:
+        spec_payload: dict[str, Any] | RewardSpec = reward_spec
+    elif cfg.reward_program is not None:
+        spec_payload = cfg.reward_program
+    else:
+        spec_payload = RewardSpec.pick(
+            instruction=cfg.instruction,
+            target_object=cfg.target_object,
+            lift_height=cfg.lift_height,
+        )
     tasks = [
         vla_pick(
             scene_id=cfg.scene_id,
-            instruction=spec.instruction,
-            target_object=spec.target_object or cfg.target_object,
-            lift_height=float(spec.params.get("lift_height", cfg.lift_height)),
+            instruction=cfg.instruction,
+            target_object=cfg.target_object,
+            lift_height=float(cfg.lift_height),
             seed=i,
             max_steps=cfg.max_steps,
-            reward_spec=spec.as_dict(),
+            reward_spec=spec_payload if isinstance(spec_payload, dict) else spec_payload.as_dict(),
         )
         for i in range(cfg.group)
     ]
     agent = _remote_agent(remote)
-    # HUD's robot recorder reads this on newer SDKs; the bridge also records via
-    # HUDATHON_RECORD_DIR for this template.
-    setattr(agent, "save", True)
+    # Episodes for curation come from the sim bridge (HUDATHON_RECORD_DIR), not HUD's
+    # agent-side LeRobot recorder — that path needs a newer lerobot than our eval pin.
+    setattr(agent, "save", False)
 
     # Tail the record dir so callers can stream per-rollout reward as episodes land.
     stop = asyncio.Event()

@@ -60,7 +60,11 @@ def run_lerobot_train(req: FinetuneRequest, *, dry_run: bool = False) -> dict:
     summary = {"cmd": cmd, "output_dir": str(req.output_dir), "dry_run": dry_run}
     (req.output_dir / "finetune_request.json").write_text(json.dumps(summary, indent=2) + "\n")
     if not dry_run:
-        subprocess.run(cmd, check=True)
+        proc = subprocess.run(cmd, check=False, capture_output=True, text=True)
+        if proc.returncode != 0:
+            tail = (proc.stderr or proc.stdout or "").strip().splitlines()
+            excerpt = "\n".join(tail[-40:]) if tail else f"exit code {proc.returncode}"
+            raise RuntimeError(f"lerobot-train failed:\n{excerpt}")
     return summary
 
 

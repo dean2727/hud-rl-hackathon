@@ -45,7 +45,7 @@ RolloutFn = Callable[[dict[str, Any]], None]
 ROOT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT_DIR))
 from train.config import TrainConfig
-from train.convert import convert_episodes
+from train.convert import convert_episodes, count_frames
 from train.curate import curate_episodes
 
 # A cold A100 plus the first-time checkpoint download into the HF-cache Volume can take
@@ -66,25 +66,27 @@ def _serve_and_eval(
     on_rollout: RolloutFn | None = None,
 ) -> dict[str, Any]:
     """Spawn the Modal policy server, wait for its tunnel address, run a local eval
-    batch against it, then stop the server. Returns the eval summary."""
+    batch against it, then stop the server. Returns the eval summary.
+
+    Caller must hold ``app.run()`` for the Modal App that owns ``serve_policy``.
+    """
     import modal
-    from train.modal_app import SERVE_ADDR_QUEUE, app, serve_policy
+    from train.modal_app import SERVE_ADDR_QUEUE, serve_policy
     from train.eval import run_eval_batch
 
-    with app.run():
-        addr_q = modal.Queue.from_name(SERVE_ADDR_QUEUE, create_if_missing=True)
-        try:
-            addr_q.clear()  # drop any stale address from a previous run
-        except Exception:
-            pass
-        call = serve_policy.spawn(checkpoint=checkpoint, policy_family=cfg.policy_family)
-        try:
-            remote = addr_q.get(timeout=wait_s)  # "host:port" published by serve_policy
-            print(f"[loop] policy serving at {remote}; running {cfg.group} eval rollouts", flush=True)
-            summary = asyncio.run(run_eval_batch(
-                remote=remote, record_dir=record_dir, config=cfg, on_rollout=on_rollout))
-        finally:
-            call.cancel()  # free the A100 as soon as eval is done
+    addr_q = modal.Queue.from_name(SERVE_ADDR_QUEUE, create_if_missing=True)
+    try:
+        addr_q.clear()  # drop any stale address from a previous run
+    except Exception:
+        pass
+    call = serve_policy.spawn(checkpoint=checkpoint, policy_family=cfg.policy_family)
+    try:
+        remote = addr_q.get(timeout=wait_s)  # "host:port" published by serve_policy
+        print(f"[loop] policy serving at {remote}; running {cfg.group} eval rollouts", flush=True)
+        summary = asyncio.run(run_eval_batch(
+            remote=remote, record_dir=record_dir, config=cfg, on_rollout=on_rollout))
+    finally:
+        call.cancel()  # free the A100 as soon as eval is done
     return summary
 
 
@@ -104,6 +106,7 @@ def _upload_dataset(local_dir: Path, vol_subdir: str) -> str:
 
 def _finetune(*, repo_id: str, dataset_vol_subdir: str, output_name: str,
               policy_path: str, steps: int, batch_size: int) -> dict[str, Any]:
+    """Run ``fine_tune`` on Modal. Caller must hold ``app.run()``."""
     from train.modal_app import fine_tune
 
     return fine_tune.remote(
@@ -160,11 +163,16 @@ def run_round(
         return result
 
     # 1) serve on Modal + eval locally against it (per-rollout reward streams via on_rollout)
+    from train.modal_app import app
+
     _emit(progress, "train_stage", round=round_idx, stage="serve", status="started")
-    result["eval"] = _serve_and_eval(
-        checkpoint=checkpoint, record_dir=raw_dir, cfg=cfg, wait_s=SERVE_WAIT_S,
-        on_rollout=(lambda d: on_rollout({**d, "round": round_idx})) if on_rollout else None,
-    )
+    with app.run():
+        result["eval"] = _serve_and_eval(
+            checkpoint=checkpoint, record_dir=raw_dir, cfg=cfg, wait_s=SERVE_WAIT_S,
+            on_rollout=(lambda d: on_rollout({**d, "round": round_idx})) if on_rollout else None,
+        )
+        _emit(progress, "train_stage", round=round_idx, stage="serve", status="completed")
+        _emit(progress, "train_stage", round=round_idx, stage="eval", status="completed")
     _emit(progress, "eval_summary", round=round_idx,
           mean_reward=result["eval"]["mean_reward"],
           success_rate=result["eval"]["success_rate"],
@@ -187,15 +195,31 @@ def run_round(
     result["convert"] = convert_episodes(
         source_dir=curated_dir, repo_id=repo_id, root=ds_dir, default_task=cfg.instruction)
 
+    n_frames = count_frames(curated_dir)
+    result["train_frames"] = n_frames
+    min_frames = max(2, batch_size)
+    if n_frames < min_frames:
+        result["stop"] = (
+            f"only {n_frames} training frame(s) after curation; need at least {min_frames} "
+            f"(rollouts likely ended on step 0 — check reward spec / scene reachability)"
+        )
+        _emit(progress, "train_stage", round=round_idx, stage="finetune", status="skipped",
+              detail={"reason": result["stop"], "train_frames": n_frames})
+        return result
+
+    train_batch = min(batch_size, n_frames)
+
     # 4) upload the dataset to the checkpoint Volume so the Modal finetune can read it
     result["dataset_volume_path"] = _upload_dataset(ds_dir, vol_subdir)
 
     # 5) fine-tune on Modal, committing the new checkpoint to the Volume
     _emit(progress, "train_stage", round=round_idx, stage="finetune", status="started",
-          detail={"steps": steps, "selected": result["curated"]["selected"]})
-    result["finetune"] = _finetune(
-        repo_id=repo_id, dataset_vol_subdir=vol_subdir, output_name=rname,
-        policy_path=checkpoint, steps=steps, batch_size=batch_size)
+          detail={"steps": steps, "selected": result["curated"]["selected"], "train_frames": n_frames,
+                  "batch_size": train_batch})
+    with app.run():
+        result["finetune"] = _finetune(
+            repo_id=repo_id, dataset_vol_subdir=vol_subdir, output_name=rname,
+            policy_path=checkpoint, steps=steps, batch_size=train_batch)
     # lerobot-train writes its loadable weights under output_dir/checkpoints/last/pretrained_model;
     # confirm the exact subdir from the finetune output before serving it next round.
     result["new_checkpoint"] = f"volume:{rname}"

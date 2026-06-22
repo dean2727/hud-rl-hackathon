@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -31,6 +32,8 @@ class TrainConfig:
     target_object: str = os.environ.get("HUDATHON_TARGET_OBJECT", "block")
     lift_height: float = float(os.environ.get("HUDATHON_LIFT_HEIGHT", "0.55"))
     replan_horizon: int = int(os.environ.get("HUDATHON_REPLAN_HORIZON", "10"))
+    # Per-activity reward program (dict with ``terms``); set by the web backend, not env.
+    reward_program: dict[str, Any] | None = None
 
     def dataset_dir(self, name: str) -> Path:
         return self.dataset_root / name

@@ -79,6 +79,11 @@ def _read_steps(ep_dir: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in lines if line.strip()]
 
 
+def count_frames(source_dir: Path) -> int:
+    """Total control steps recorded under ``source_dir`` (for batch-size sizing)."""
+    return sum(len(_read_steps(ep)) for ep in _episode_dirs(source_dir))
+
+
 def convert_episodes(
     *,
     source_dir: Path,
