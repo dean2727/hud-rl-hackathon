@@ -1,9 +1,14 @@
 # Room2Robot
 
 <p align="center">
+  <img src="demo.gif" alt="Room2Robot demo" width="840">
+</p>
+
+<p align="center">
   Upload photos of a real space → Gizmo builds a 3D scene → HUD grades rollouts →
   fine-tune pi0.5 on Modal → watch the robot in sim.
 </p>
+
 
 > **describe** the room from photos  →  **generate** a Gizmo scene  →  **grade** LLM rollouts  →  **fine-tune** the VLA on Modal  →  **play back** a rollout video
 
